@@ -27,6 +27,20 @@ foreach(script ${TEST_SCRIPT_FILES})
     set_property(TEST ${target} APPEND PROPERTY LABELS MayaUsd)
 endforeach()
 
+if (MAYAHYDRA_LOCATION)
+    mayaUsd_get_unittest_target(target testMayaHydraPlugin.py)
+    mayaUsd_add_test(${target}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        PYTHON_MODULE ${target}
+        ENV
+            "MAYA_PLUG_IN_PATH=${MAYAHYDRA_LOCATION}/lib/maya"
+            "PATH=${MAYAHYDRA_LOCATION}/lib"
+            "PXR_PLUGINPATH_NAME=${MAYAHYDRA_LOCATION}/lib/usd"
+            "LD_LIBRARY_PATH=${ADDITIONAL_LD_LIBRARY_PATH}"
+    )
+    set_property(TEST ${target} APPEND PROPERTY LABELS MayaHydra)
+endif()
+
 # The testMayaUsdPythonImport now checks that we can import both the USD Python bindings
 # and the MayaUSD Python bindings in a script node context. For this to be tested, we
 # need to point to the updated module file and explicitly ask Maya to block execution of
