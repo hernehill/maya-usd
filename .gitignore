@@ -86,3 +86,8 @@ ehthumbs_vista.db
 .nfs
 # Files ending in ~ are Linux convention backup files
 *~
+
+# HH
+_rez_build
+.vscode
+.idea
