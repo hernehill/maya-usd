@@ -32,7 +32,11 @@ def commands():
     env.MAYA_USD_ROOT = "{root}"
     env.MAYA_USD_LOCATION = "{root}"
 
-    env.MAYA_MODULE_PATH.append("{root}")
+
+def post_commands():
+    # NOTE: We prepend (so Maya finds it first) here (post_commands) so the Maya's
+    # package (hh_rez_maya) looses the race.
+    env.MAYA_MODULE_PATH.prepend("{root}")
 
 
 uuid = "repository.maya-usd"
