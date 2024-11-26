@@ -21,7 +21,7 @@ project(maya-usd)
 # REZ
 # -------------------------------------------
 set(MAYA_DEVKIT_LOCATION $ENV{MAYA_DEVKIT_LOCATION})
-set(HH_PYTHON_VERSION 3.9)
+set(HH_PYTHON_VERSION 3.9)  # Rocky 9 default
 if(DEFINED ENV{REZ_PYTHON_ROOT})
     if($ENV{REZ_PYTHON_MAJOR_VERSION} EQUAL "3")
         if($ENV{REZ_PYTHON_MINOR_VERSION} EQUAL "7")
