@@ -1,6 +1,6 @@
 name = "maya_usd"
 
-version = "0.30.0.hh.1.1.0"
+version = "0.30.0.hh.1.0.0"
 
 authors = [
     "Autodesk",
@@ -24,7 +24,6 @@ private_build_requires = [
 
 variants = [
     ["maya-2025.3", "usd-23.11", "python-3.11"],
-    ["maya-2025.3", "usd-24.11", "python-3.11"],
 ]
 
 
