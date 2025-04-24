@@ -182,6 +182,7 @@ if (BUILD_MAYAUSD_LIBRARY)
     include(cmake/jinja.cmake)
 endif()
 
+find_package(Vulkan REQUIRED)  # Marcelo: create Vulkan::Vulkan target since USD is using it
 find_package(USD 0.21.11 REQUIRED)
 if (BUILD_MAYAUSD_LIBRARY OR BUILD_AL_PLUGIN OR BUILD_TESTS)
     if(NOT USD_GENSCHEMA)
