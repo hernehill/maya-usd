@@ -17,9 +17,8 @@ cmake_minimum_required(VERSION 3.13...3.17)
 
 project(maya-usd)
 
-# -------------------------------------------
+#####################################################
 # REZ
-# -------------------------------------------
 set(MAYA_DEVKIT_LOCATION $ENV{MAYA_DEVKIT_LOCATION})
 set(HH_PYTHON_VERSION 3.9)  # Rocky 9 default
 if(DEFINED ENV{REZ_PYTHON_ROOT})
@@ -37,7 +36,12 @@ if(DEFINED ENV{REZ_PYTHON_ROOT})
         endif()
     endif()
 endif()
-# -------------------------------------------
+
+if(DEFINED ENV{REZ_VULKANSDK_ROOT})
+    find_package(Vulkan REQUIRED)  # Marcelo: create Vulkan::Vulkan target since USD is using it
+endif()
+
+#####################################################
 
 #------------------------------------------------------------------------------
 # options
@@ -182,7 +186,6 @@ if (BUILD_MAYAUSD_LIBRARY)
     include(cmake/jinja.cmake)
 endif()
 
-find_package(Vulkan REQUIRED)  # Marcelo: create Vulkan::Vulkan target since USD is using it
 find_package(USD 0.21.11 REQUIRED)
 if (BUILD_MAYAUSD_LIBRARY OR BUILD_AL_PLUGIN OR BUILD_TESTS)
     if(NOT USD_GENSCHEMA)

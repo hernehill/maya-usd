@@ -1,6 +1,6 @@
 name = "maya_usd"
 
-version = "0.31.0.dev.hh.2.0.0"
+version = "0.31.0.dev.hh.2.0.1"
 
 authors = [
     "Autodesk",
@@ -16,7 +16,7 @@ with scope("config") as c:
 requires = []
 
 private_build_requires = [
-    "vulkanSDK",
+    # "vulkanSDK",
     "PyOpenGL",
     "Jinja2",
     "PySide6",
@@ -24,9 +24,9 @@ private_build_requires = [
 ]
 
 variants = [
-    ["maya-2025.3", "usd-23.11", "python-3.11"],
-    ["maya-2025.3", "usd-24.11", "python-3.11"],
-    ["maya-2026.0", "usd-24.11", "python-3.11"],
+    ["maya-2025.3", "usd-23.11", "python-3.11.4"],
+    ["maya-2025.3", "usd-24.11", "python-3.11.4"],
+    ["maya-2026.0", "usd-24.11", "python-3.11.9"],
 ]
 
 
