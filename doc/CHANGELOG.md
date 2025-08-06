@@ -332,7 +332,7 @@
 * Fix outliner set text colour on prims [#3853](https://github.com/Autodesk/maya-usd/pull/3853)
 * Support users naming node "world"
   * Nothing prevents users from naming nodes "world" [#3852](https://github.com/Autodesk/maya-usd/pull/3852)
-  * Adapt to Maya Ufe world node change [#3842](https://github.com/Autodesk/maya-usd/pull/3842) 
+  * Adapt to Maya Ufe world node change [#3842](https://github.com/Autodesk/maya-usd/pull/3842)
 * Improve Maya pivot support [#3851](https://github.com/Autodesk/maya-usd/pull/3851)
 * Add Reload References Command [#3844](https://github.com/Autodesk/maya-usd/pull/3844)
 * Write Autodesk metadata to the session layer [#3841](https://github.com/Autodesk/maya-usd/pull/3841)
@@ -382,7 +382,7 @@
 * Fix blendshape names by using parent node instead of mesh shape[#3703](https://github.com/Autodesk/maya-usd/pull/3703)
 
 **Workflow:**
-* Copy Paste: 
+* Copy Paste:
   * Cut a prim and not have it paste if the cut is restricted [#3793](https://github.com/Autodesk/maya-usd/pull/3793)
   * Support copy and then paste a prim as a sibling [#3791](https://github.com/Autodesk/maya-usd/pull/3791)
   * Pasted prims should be selected [#3777](https://github.com/Autodesk/maya-usd/pull/3777)
@@ -1977,9 +1977,9 @@
 This release changes to highlight:
 * Ufe cameras
 * Blendshape export support
-* Maya's scene will get modified by changes to USD data model 
+* Maya's scene will get modified by changes to USD data model
 * VP2RenderDelegate is enabled by default and doesn't require env variable flag anymore
-* Maya-To-Hydra compilation is disabled for Maya 2019 with USD 20.08 or 20.11 
+* Maya-To-Hydra compilation is disabled for Maya 2019 with USD 20.08 or 20.11
 
 **Build:**
 * Migrated more tests from plugin/pxr to core mayaUsd [#1042](https://github.com/Autodesk/maya-usd/pull/1042)
@@ -1995,7 +1995,7 @@ This release changes to highlight:
 * Fixed issue where referenced scenes have incorrect UV set attribute name written out. [#1062](https://github.com/Autodesk/maya-usd/pull/1062)
 * Fixed texture writer path resolver to work relative to final export path [#1028](https://github.com/Autodesk/maya-usd/pull/1028)
 * Fixed incorrect `bindTransforms` being determined during export [#1024](https://github.com/Autodesk/maya-usd/pull/1024)
-* Added Blendshape export functionality [#1016](https://github.com/Autodesk/maya-usd/pull/1016) 
+* Added Blendshape export functionality [#1016](https://github.com/Autodesk/maya-usd/pull/1016)
 * Added staticSingleSample flag, and optimize mesh attributes by default [#989](https://github.com/Autodesk/maya-usd/pull/989) [#1012](https://github.com/Autodesk/maya-usd/pull/1012)
 * Added convert for USD timeSamples to Maya FPS [#970](https://github.com/Autodesk/maya-usd/pull/970) [#1010](https://github.com/Autodesk/maya-usd/pull/1010)
 
@@ -2108,7 +2108,7 @@ This release includes many changes, like:
 
 **Translation Framework:**
 * Fixed import of "useSpecularWorkflow" input on UsdPreviewSurface shaders [#837](https://github.com/Autodesk/maya-usd/pull/837)
-* Added translation support between lambert transparency and UsdPreviewSurface opacity 
+* Added translation support between lambert transparency and UsdPreviewSurface opacity
 * Material import options rework [#822](https://github.com/Autodesk/maya-usd/pull/822) [#831](https://github.com/Autodesk/maya-usd/pull/831) [#832](https://github.com/Autodesk/maya-usd/pull/832) [#833](https://github.com/Autodesk/maya-usd/pull/833) [#836](https://github.com/Autodesk/maya-usd/pull/836)
 * Ensure UsdShadeMaterialBindingAPI schema is applied when authoring bindings during export [#804](https://github.com/Autodesk/maya-usd/pull/804)
 * Updated custom converter test plugin to use symmetric writer [#803](https://github.com/Autodesk/maya-usd/pull/803)
@@ -2210,7 +2210,7 @@ This release includes:
 ## [0.2.0] - 2020-07-22
 This release includes support for Python 3 (requires USD 20.05). The goal of this beta/pre-release version is to validate:
 * a new Maya 2020 installer
-* basic import / export of simple Maya materials to UsdShade with PreviewSurface 
+* basic import / export of simple Maya materials to UsdShade with PreviewSurface
 * viewport improvements
 
 ### Build
@@ -2306,13 +2306,13 @@ This release includes support for Python 3 (requires USD 20.05). The goal of thi
 ## [0.1.0] - 2020-03-15
 This release adds *all* changes made to refactoring_sandbox branch, including BaseProxyShape, Maya's Attribute Editor and Outliner support via Ufe-USD runtime plugin, VP2RenderDelegate and Maya To Hydra. Added Autodesk plugin with Import/Export workflows and initial support for stage creation.
 
-Made several build improvements, including fixing regression tests execution on all supported platforms. 
+Made several build improvements, including fixing regression tests execution on all supported platforms.
 
 ### Build
-* Fixed regression tests to run on all supported platforms [PR #198](https://github.com/Autodesk/maya-usd/pull/198) 
+* Fixed regression tests to run on all supported platforms [PR #198](https://github.com/Autodesk/maya-usd/pull/198)
 * Improved CMake code and changed minimum version [PR #323](https://github.com/Autodesk/maya-usd/pull/323)
 * Number several build documentation [PR #208](https://github.com/Autodesk/maya-usd/pull/208) [PR #150](https://github.com/Autodesk/maya-usd/issues/150) [PR #346](https://github.com/Autodesk/maya-usd/pull/346)
-* Improved configuration of “mayaUSD.mod" with build variables [Issue #21](https://github.com/Autodesk/maya-usd/issues/21) [PR #29](https://github.com/Autodesk/maya-usd/pull/29) 
+* Improved configuration of “mayaUSD.mod" with build variables [Issue #21](https://github.com/Autodesk/maya-usd/issues/21) [PR #29](https://github.com/Autodesk/maya-usd/pull/29)
 * Enabled strict compilation mode for all platforms [PR #222](https://github.com/Autodesk/maya-usd/pull/222) [PR #275](https://github.com/Autodesk/maya-usd/pull/275) [PR #293](https://github.com/Autodesk/maya-usd/pull/293)
 * Enabled C++11 for GoogleTest external project [#290](https://github.com/Autodesk/maya-usd/pull/290)
 * Added UFE_PREVIEW_VERSION_NUM pre-processor support. [#289](https://github.com/Autodesk/maya-usd/pull/289)
@@ -2322,13 +2322,13 @@ Made several build improvements, including fixing regression tests execution on 
 * Fixed & closed several build issues
 
 ### Translation framework
-* Refactored Pixar plugin to create one translation framework in mayaUsd core library. Moved Pixar translator plugin to build as a shared module across all studio plugins [PR #154](https://github.com/Autodesk/maya-usd/pull/154) 
+* Refactored Pixar plugin to create one translation framework in mayaUsd core library. Moved Pixar translator plugin to build as a shared module across all studio plugins [PR #154](https://github.com/Autodesk/maya-usd/pull/154)
 * Refactored AL_USDUtils to create a new shared library under lib. Added support for C++ tests in lib [PR #288](https://github.com/Autodesk/maya-usd/pull/288)
 
 ### Workflows
 * Added bounding box interface to UFE and fixed frame selection [PR #210](https://github.com/Autodesk/maya-usd/pull/210)
-* Added Attribute Editor support  [PR #142](https://github.com/Autodesk/maya-usd/pull/142) 
-* Added base proxy shape and UFE-USD runtime plugin  [PR #91](https://github.com/Autodesk/maya-usd/pull/91) 
+* Added Attribute Editor support  [PR #142](https://github.com/Autodesk/maya-usd/pull/142)
+* Added base proxy shape and UFE-USD runtime plugin  [PR #91](https://github.com/Autodesk/maya-usd/pull/91)
 * Added attribute observation to UFE and fixed viewport and AE refresh issues [PR #204](https://github.com/Autodesk/maya-usd/pull/204)
 * Added contextual operations to UFE with basic UFE-USD implementation [PR #303](https://github.com/Autodesk/maya-usd/pull/303)
 * Added MayaReference schema and reader implementation [#255](https://github.com/Autodesk/maya-usd/pull/255)
@@ -2355,7 +2355,7 @@ Made several build improvements, including fixing regression tests execution on 
 * Improved push to prim to avoid generating overs [Issue PR #246](https://github.com/Autodesk/maya-usd/pull/246)
 * Improved performance when processing prim meta data [PR #245](https://github.com/Autodesk/maya-usd/pull/245)
 * Improved USDGeomScope import  [PR #232](https://github.com/Autodesk/maya-usd/pull/232)
-* Added USDGeomScope support in Proxy Shape  [PR #185](https://github.com/Autodesk/maya-usd/pull/185) 
+* Added USDGeomScope support in Proxy Shape  [PR #185](https://github.com/Autodesk/maya-usd/pull/185)
 * Changed pushToPrim default to On [PR #149](https://github.com/Autodesk/maya-usd/pull/149)
 
 *Pixar plugin*
@@ -2363,8 +2363,8 @@ Made several build improvements, including fixing regression tests execution on 
 * Added  profiler & performance tracing when using batch renderer [PR #260](https://github.com/Autodesk/maya-usd/pull/260)
 
 ### Render
-* Added VP2RenderDelegate  [PR #91](https://github.com/Autodesk/maya-usd/pull/91) 
-* Added support for wireframe and bounding box display [PR #112](https://github.com/Autodesk/maya-usd/pull/112) 
+* Added VP2RenderDelegate  [PR #91](https://github.com/Autodesk/maya-usd/pull/91)
+* Added support for wireframe and bounding box display [PR #112](https://github.com/Autodesk/maya-usd/pull/112)
 * Fixed selection highlight when selecting multiple proxy shapes [Issue #105](https://github.com/Autodesk/maya-usd/issues/105)
 * Fixed moving proxy shape in VP2RenderDelegate [Issue #71](https://github.com/Autodesk/maya-usd/issues/71)
 * Fixed hiding proxy shape  in VP2RenderDelegate [Issue #70](https://github.com/Autodesk/maya-usd/issues/70)
