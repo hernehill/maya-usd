@@ -53,7 +53,7 @@ option(BUILD_PXR_PLUGIN "Build the Pixar USD plugin and libraries." OFF)  # Marc
 option(BUILD_AL_PLUGIN "Build the Animal Logic USD plugin and libraries." OFF)  # Marcelo: was ON
 option(BUILD_HDMAYA "Build the legacy Maya-To-Hydra plugin and scene delegate." OFF)
 option(BUILD_RFM_TRANSLATORS "Build translators for RenderMan for Maya shaders." OFF)  # Marcelo: was ON
-option(BUILD_TESTS "Build tests." OFF)  # Marcelo: was ON
+option(BUILD_TESTS "Build tests." ON)  # Marcelo: was ON
 option(BUILD_STRICT_MODE "Enforce all warnings as errors." ON)
 option(BUILD_SHARED_LIBS "Build libraries as shared or static." ON)
 option(BUILD_WITH_PYTHON_3 "Build with python 3." ON)  # Marcelo: was OFF
