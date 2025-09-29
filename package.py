@@ -24,8 +24,8 @@ private_build_requires = [
 ]
 
 variants = [
-    ["maya-2025.3", "usd-24.11", "python-3.11.4"],  # Maya 2025: undefined symbol _PyModule_add issue
-    ["maya-2026.2", "usd-24.11", "python-3.11.9"],  # Maya 2026: undefined symbol _PyModule_add issue
+    # ["maya-2025.3", "usd-24.11", "python-3.11.4"],  # Maya 2025: undefined symbol _PyModule_add issue
+    ["maya-2026.2", "usd-25.08", "python-3.11.9"],  # Maya 2026: undefined symbol _PyModule_add issue
 ]
 
 
