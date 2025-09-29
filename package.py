@@ -1,6 +1,6 @@
 name = "maya_usd"
 
-version = "0.33.0.hh.1.1.0"
+version = "0.33.0.hh.1.1.1"
 
 authors = [
     "Autodesk",
