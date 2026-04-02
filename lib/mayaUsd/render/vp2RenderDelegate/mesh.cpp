@@ -367,6 +367,9 @@ VtVec3fArray _points(PrimvarInfoMap& infoMap)
     return VtVec3fArray();
 }
 
+//! Primvar name used to mark a prim as a holdout/matte object.
+const TfToken kMayaHoldoutToken("maya:holdout", TfToken::Immortal);
+
 } // namespace
 
 void HdVP2Mesh::_InitGPUCompute()
@@ -1072,6 +1075,24 @@ void HdVP2Mesh::Sync(
 
     _PrepareSharedVertexBuffers(delegate, *dirtyBits, reprToken);
 
+    // Holdout primvar detection
+    if (*dirtyBits & HdChangeTracker::DirtyPrimvar) {
+        bool newHoldout = false;
+        VtValue val = delegate->Get(id, kMayaHoldoutToken);
+        if (val.IsHolding<bool>()) {
+            newHoldout = val.UncheckedGet<bool>();
+        }
+        if (newHoldout != _holdout) {
+            _holdout = newHoldout;
+            RenderItemFunc setHoldoutDirty
+                = [](HdVP2DrawItem::RenderItemData& renderItemData) {
+                      renderItemData.SetDirtyBits(
+                          renderItemData.GetDirtyBits() | DirtyHoldout);
+                  };
+            _ForEachRenderItem(_reprs, setHoldoutDirty);
+        }
+    }
+
 #if PXR_VERSION > 2111
     const TfToken& renderTag = GetRenderTag();
 #else
@@ -1774,7 +1795,16 @@ void HdVP2Mesh::_UpdateDrawItem(
     }
 #endif
 
-    if (desc.geomStyle == HdMeshGeomStyleHull
+    if (_holdout) {
+        if (itemDirtyBits & DirtyHoldout) {
+            MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
+            if (holdoutShader != nullptr && holdoutShader != drawItemData._shader) {
+                drawItemData._shader = holdoutShader;
+                stateToCommit._shader = holdoutShader;
+                stateToCommit._isTransparent = false;
+            }
+        }
+    } else if (desc.geomStyle == HdMeshGeomStyleHull
         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
         if (dirtyMaterialId) {
@@ -2248,6 +2278,7 @@ void HdVP2Mesh::_UpdateDrawItem(
                                                            primvars,
                                                            indexBuffer,
                                                            isBBoxItem,
+                                                           isHoldout = _holdout,
                                                            &sharedBBoxGeom]() {
             // This code executes serially, once per mesh updated. Keep
             // performance in mind while modifying this code.
@@ -2266,6 +2297,20 @@ void HdVP2Mesh::_UpdateDrawItem(
             if (stateToCommit._shader != nullptr) {
                 bool success = renderItem->setShader(stateToCommit._shader);
                 TF_VERIFY(success);
+                renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
+            }
+
+            // Holdout render item properties
+            if (isHoldout) {
+                renderItem->setExcludedFromPostEffects(true);
+                renderItem->castsShadows(false);
+                renderItem->receivesShadows(false);
+                // renderItem->setTreatAsTransparent(true);
+            } else {
+                // Restore original values (based on _CreateSmoothHullRenderItem)
+                renderItem->setExcludedFromPostEffects(false);
+                renderItem->castsShadows(true);
+                renderItem->receivesShadows(true);
                 renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
             }
 
