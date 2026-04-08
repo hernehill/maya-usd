@@ -42,14 +42,3 @@ install(FILES ${HEADERS}
 
 set(PYTHON_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX}/lib/python/${PROJECT_NAME})
 install(FILES analyticMayaUsdPerformance.py DESTINATION ${PYTHON_INSTALL_PREFIX})
-
-# -----------------------------------------------------------------------------
-# shaders
-# -----------------------------------------------------------------------------
-set(SHADER_FILES
-    shaders/mayaUsdHoldout.ogsfx
-)
-
-install(FILES ${SHADER_FILES}
-    DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/shaders
-)

@@ -1797,12 +1797,7 @@ void HdVP2Mesh::_UpdateDrawItem(
 
     if (_holdout) {
         if (itemDirtyBits & DirtyHoldout) {
-            MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
-            if (holdoutShader != nullptr && holdoutShader != drawItemData._shader) {
-                drawItemData._shader = holdoutShader;
-                stateToCommit._shader = holdoutShader;
-                stateToCommit._isTransparent = false;
-            }
+            // TODO: add renderItem to holdoutList
         }
     } else if (desc.geomStyle == HdMeshGeomStyleHull
         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
@@ -2278,7 +2273,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                                                            primvars,
                                                            indexBuffer,
                                                            isBBoxItem,
-                                                           isHoldout = _holdout,
                                                            &sharedBBoxGeom]() {
             // This code executes serially, once per mesh updated. Keep
             // performance in mind while modifying this code.
@@ -2297,20 +2291,6 @@ void HdVP2Mesh::_UpdateDrawItem(
             if (stateToCommit._shader != nullptr) {
                 bool success = renderItem->setShader(stateToCommit._shader);
                 TF_VERIFY(success);
-                renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
-            }
-
-            // Holdout render item properties
-            if (isHoldout) {
-                renderItem->setExcludedFromPostEffects(true);
-                renderItem->castsShadows(false);
-                renderItem->receivesShadows(false);
-                // renderItem->setTreatAsTransparent(true);
-            } else {
-                // Restore original values (based on _CreateSmoothHullRenderItem)
-                renderItem->setExcludedFromPostEffects(false);
-                renderItem->castsShadows(true);
-                renderItem->receivesShadows(true);
                 renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
             }
 

@@ -320,43 +320,6 @@ public:
      */
     MHWRender::MShaderInstance* Get3dCPVFatPointShader() const { return _3dCPVFatPointShader; }
 
-    /*! \brief  Returns a holdout (matte) shader instance.
-     */
-    MHWRender::MShaderInstance* GetHoldoutShader()
-    {
-        if (_holdoutShader) return _holdoutShader;
-
-        MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
-        const MHWRender::MShaderManager* shaderMgr
-            = renderer ? renderer->getShaderManager() : nullptr;
-        if (!TF_VERIFY(shaderMgr)) return nullptr;
-
-        _holdoutShader = shaderMgr->getEffectsFileShader(
-            "mayaHoldoutSurface",
-            "",
-            nullptr,
-            0,
-            false
-        );
-
-        if (!TF_VERIFY(_holdoutShader)) {
-            _holdoutShader = shaderMgr->getStockShader(MHWRender::MShaderManager::k3dSolidShader);
-            const float transparentBlack[] = { 0.f, 0.f, 0.f, 0.f };
-            _holdoutShader->setParameter(kSolidColorParameterName, transparentBlack);
-        }
-
-        // _holdoutShader = shaderMgr->getEffectsFileShader(
-        //     "mayaUsdHoldout",  // filename without .ogsfx extension
-        //     "Holdout",         // technique name
-        //     nullptr,           // no preprocessor macros
-        //     0,                 // macro count
-        //     false,             // not a post effect
-        //     nullptr            // no completion callback
-        // );
-
-        return _holdoutShader;
-    }
-
     /*! \brief  Returns a 3d solid shader with the specified color.
      */
     MHWRender::MShaderInstance* Get3dSolidShader(const MColor& color)
@@ -574,7 +537,6 @@ public:
             _3dDefaultMaterialShader = nullptr;
             _3dCPVSolidShader = nullptr;
             _3dCPVFatPointShader = nullptr;
-            _holdoutShader = nullptr;
         }
         _isInitialized = false;
     }
@@ -604,7 +566,6 @@ private:
 
     MHWRender::MShaderInstance* _3dCPVSolidShader { nullptr };    //!< 3d CPV solid-color shader
     MHWRender::MShaderInstance* _3dCPVFatPointShader { nullptr }; //!< 3d CPV fat point shader
-    MHWRender::MShaderInstance* _holdoutShader { nullptr };
 
     HdVP2ShaderCache _userCache; //!< A thread-safe cache of user generated shaders.
 };
@@ -1226,13 +1187,6 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dCPVFatPointShader() const
 MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColor& color) const
 {
     return sShaderCache.Get3dFatPointShader(color);
-}
-
-/*! \brief  Returns a holdout (matte) shader instance for use with holdout prims.
- */
-MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
-{
-    return sShaderCache.GetHoldoutShader();
 }
 
 /*! \brief  Returns a sampler state as specified by the description.
