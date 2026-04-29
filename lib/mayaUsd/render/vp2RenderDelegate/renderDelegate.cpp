@@ -1203,31 +1203,39 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
             shaderMgr->getStockShader(MHWRender::MShaderManager::k3dSolidShader));
 
         if (_holdoutShader) {
-            // Output black — color doesn't matter because the blend state
-            // below uses (ZERO, ONE) which keeps the destination unchanged.
-            const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-            _holdoutShader->setParameter("solidColor", black);
+            // Fully transparent black. When setTreatAsTransparent(false) is kept
+            // and the item stays in the opaque pass, VP2 will still write depth
+            // normally but the color contribution will be zero-alpha, which
+            // combined with the (ZERO, ONE) blend equation VP2 uses for alpha=0
+            // opaque items preserves the destination (image plane) color.
+            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            _holdoutShader->setParameter("solidColor", color);
 
-            // Build a blend state that:
-            //   color: srcFactor=ZERO, dstFactor=ONE  → dst color is preserved
-            //   alpha: srcFactor=ZERO, dstFactor=ONE  → dst alpha is preserved
-            // This means the shader writes DEPTH (via the depth buffer, unaffected
-            // by blend state) but leaves the COLOR BUFFER completely unchanged,
-            // effectively making the pixels "see through" to the image plane.
-            MHWRender::MBlendStateDesc blendDesc;
-            blendDesc.targetBlends[0].blendEnable       = true;
-            blendDesc.targetBlends[0].sourceBlend        = MHWRender::MBlendStatDesc::kZero;
-            blendDesc.targetBlends[0].destinationBlend   = MHWRender::MBlendStatDesc::kOne;
-            blendDesc.targetBlends[0].blendOperation     = MHWRender::MBlendStatDesc::kAdd;
-            blendDesc.targetBlends[0].alphaSourceBlend   = MHWRender::MBlendStatDesc::kZero;
-            blendDesc.targetBlends[0].alphaDestinationBlend = MHWRender::MBlendStatDesc::kOne;
-            blendDesc.targetBlends[0].alphaBlendOperation = MHWRender::MBlendStatDesc::kAdd;
+            // // Output black — color doesn't matter because the blend state
+            // // below uses (ZERO, ONE) which keeps the destination unchanged.
+            // const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            // _holdoutShader->setParameter("solidColor", black);
 
-            const MHWRender::MBlendState* blendState =
-                MHWRender::MStateManager::acquireBlendState(blendDesc);
-            if (blendState) {
-                _holdoutShader->setOverrideBlendState(blendState);
-            }
+            // // Build a blend state that:
+            // //   color: srcFactor=ZERO, dstFactor=ONE  → dst color is preserved
+            // //   alpha: srcFactor=ZERO, dstFactor=ONE  → dst alpha is preserved
+            // // This means the shader writes DEPTH (via the depth buffer, unaffected
+            // // by blend state) but leaves the COLOR BUFFER completely unchanged,
+            // // effectively making the pixels "see through" to the image plane.
+            // MHWRender::MBlendStateDesc blendDesc;
+            // blendDesc.targetBlends[0].blendEnable       = true;
+            // blendDesc.targetBlends[0].sourceBlend        = MHWRender::MBlendStatDesc::kZero;
+            // blendDesc.targetBlends[0].destinationBlend   = MHWRender::MBlendStatDesc::kOne;
+            // blendDesc.targetBlends[0].blendOperation     = MHWRender::MBlendStatDesc::kAdd;
+            // blendDesc.targetBlends[0].alphaSourceBlend   = MHWRender::MBlendStatDesc::kZero;
+            // blendDesc.targetBlends[0].alphaDestinationBlend = MHWRender::MBlendStatDesc::kOne;
+            // blendDesc.targetBlends[0].alphaBlendOperation = MHWRender::MBlendStatDesc::kAdd;
+
+            // const MHWRender::MBlendState* blendState =
+            //     MHWRender::MStateManager::acquireBlendState(blendDesc);
+            // if (blendState) {
+            //     _holdoutShader->setOverrideBlendState(blendState);
+            // }
 
             // DO NOT call setIsTransparent(true) — that would put this item
             // into the transparent pass which sorts after opaque geometry and
