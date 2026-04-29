@@ -1806,10 +1806,9 @@ void HdVP2Mesh::_UpdateDrawItem(
                     drawItemData._shader       = holdoutShader;
                     drawItemData._shaderIsFallback = false;
                     stateToCommit._shader      = holdoutShader;
-                    // Put in transparent pass with alpha=0 so VP2 blends:
-                    // result = 0*black + 1*dst = image plane shows through.
-                    // Depth is still written in the transparent pass.
-                    stateToCommit._isTransparent = true;
+                    // The HoldOut effects shader handles depth write internally.
+                    // Keep opaque so it renders in the correct pass order.
+                    stateToCommit._isTransparent = false;
                     fprintf(stderr, "[holdout] holdout shader assigned to stateToCommit\n");
                     fflush(stderr);
                 } else {

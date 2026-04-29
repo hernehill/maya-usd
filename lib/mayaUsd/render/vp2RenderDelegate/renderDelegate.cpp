@@ -38,6 +38,7 @@
 
 #include <maya/MGlobal.h>
 #include <maya/MProfiler.h>
+#include <maya/MStateManager.h>
 #include <maya/MString.h>
 #include <maya/MStringArray.h>
 
@@ -1189,6 +1190,59 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColo
     return sShaderCache.Get3dFatPointShader(color);
 }
 
+// Pre-draw callback: disable all color writes, keep depth writes enabled.
+// This replicates HoldOutPass.xml Pass 1: SetWriteMask=None + DepthWriteEnable=true.
+static void HoldoutPreDrawCallback(
+    MHWRender::MDrawContext& context,
+    const MHWRender::MRenderItemList& /*renderItemList*/,
+    MHWRender::MShaderInstance* /*shader*/)
+{
+    MHWRender::MStateManager* stateManager = context.getStateManager();
+    if (!stateManager) return;
+
+    // Depth state: depth test ON, depth write ON (write depth so holdout occludes geometry behind it)
+    MHWRender::MDepthStencilStateDesc depthDesc;
+    depthDesc.depthEnable      = true;
+    depthDesc.depthWriteEnable = true;
+    depthDesc.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
+    const MHWRender::MDepthStencilState* depthState =
+        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
+    if (depthState) stateManager->setDepthStencilState(depthState);
+
+    // Blend state: color write mask = kNoChannels (no RGBA writes).
+    // Depth buffer is unaffected by blend state — depth writes still happen.
+    MHWRender::MBlendStateDesc blendDesc;
+    blendDesc.targetBlends[0].blendEnable   = false;
+    blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
+    const MHWRender::MBlendState* blendState =
+        MHWRender::MStateManager::acquireBlendState(blendDesc);
+    if (blendState) stateManager->setBlendState(blendState);
+}
+
+// Post-draw callback: restore default depth and blend states.
+static void HoldoutPostDrawCallback(
+    MHWRender::MDrawContext& context,
+    const MHWRender::MRenderItemList& /*renderItemList*/,
+    MHWRender::MShaderInstance* /*shader*/)
+{
+    MHWRender::MStateManager* stateManager = context.getStateManager();
+    if (!stateManager) return;
+
+    // Restore default depth state
+    MHWRender::MDepthStencilStateDesc depthDesc;
+    depthDesc.setDefaults();
+    const MHWRender::MDepthStencilState* depthState =
+        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
+    if (depthState) stateManager->setDepthStencilState(depthState);
+
+    // Restore default blend state (all channels writable, no blending)
+    MHWRender::MBlendStateDesc blendDesc;
+    blendDesc.setDefaults();
+    const MHWRender::MBlendState* blendState =
+        MHWRender::MStateManager::acquireBlendState(blendDesc);
+    if (blendState) stateManager->setBlendState(blendState);
+}
+
 MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
 {
     if (!_holdoutShader) {
@@ -1197,49 +1251,24 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
         const MHWRender::MShaderManager* shaderMgr = renderer->getShaderManager();
         if (!shaderMgr) return nullptr;
 
-        // Use the solid shader as a base — we only need it to drive
-        // the depth write. The blend state below will discard its color output.
+        // Use the solid shader as the base geometry shader (any shader works —
+        // the pre-draw callback disables all color writes so output color
+        // is irrelevant). Depth is written normally by the GPU rasterizer
+        // regardless of the shader output, so this produces a perfect
+        // depth-only pass: the holdout prim occludes geometry behind it
+        // while showing the image plane through.
         _holdoutShader.reset(
-            shaderMgr->getStockShader(MHWRender::MShaderManager::k3dSolidShader));
+            shaderMgr->getStockShader(
+                MHWRender::MShaderManager::k3dSolidShader,
+                HoldoutPreDrawCallback,
+                HoldoutPostDrawCallback));
 
         if (_holdoutShader) {
-            // Fully transparent black. When setTreatAsTransparent(false) is kept
-            // and the item stays in the opaque pass, VP2 will still write depth
-            // normally but the color contribution will be zero-alpha, which
-            // combined with the (ZERO, ONE) blend equation VP2 uses for alpha=0
-            // opaque items preserves the destination (image plane) color.
+            // Color is irrelevant (color writes are disabled by the pre-draw
+            // callback), but set alpha=0 in case setTreatAsTransparent is
+            // ever toggled on during debugging.
             const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
             _holdoutShader->setParameter("solidColor", color);
-
-            // // Output black — color doesn't matter because the blend state
-            // // below uses (ZERO, ONE) which keeps the destination unchanged.
-            // const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-            // _holdoutShader->setParameter("solidColor", black);
-
-            // // Build a blend state that:
-            // //   color: srcFactor=ZERO, dstFactor=ONE  → dst color is preserved
-            // //   alpha: srcFactor=ZERO, dstFactor=ONE  → dst alpha is preserved
-            // // This means the shader writes DEPTH (via the depth buffer, unaffected
-            // // by blend state) but leaves the COLOR BUFFER completely unchanged,
-            // // effectively making the pixels "see through" to the image plane.
-            // MHWRender::MBlendStateDesc blendDesc;
-            // blendDesc.targetBlends[0].blendEnable       = true;
-            // blendDesc.targetBlends[0].sourceBlend        = MHWRender::MBlendStatDesc::kZero;
-            // blendDesc.targetBlends[0].destinationBlend   = MHWRender::MBlendStatDesc::kOne;
-            // blendDesc.targetBlends[0].blendOperation     = MHWRender::MBlendStatDesc::kAdd;
-            // blendDesc.targetBlends[0].alphaSourceBlend   = MHWRender::MBlendStatDesc::kZero;
-            // blendDesc.targetBlends[0].alphaDestinationBlend = MHWRender::MBlendStatDesc::kOne;
-            // blendDesc.targetBlends[0].alphaBlendOperation = MHWRender::MBlendStatDesc::kAdd;
-
-            // const MHWRender::MBlendState* blendState =
-            //     MHWRender::MStateManager::acquireBlendState(blendDesc);
-            // if (blendState) {
-            //     _holdoutShader->setOverrideBlendState(blendState);
-            // }
-
-            // DO NOT call setIsTransparent(true) — that would put this item
-            // into the transparent pass which sorts after opaque geometry and
-            // breaks depth occlusion of other USD prims.
         }
     }
     return _holdoutShader.get();
