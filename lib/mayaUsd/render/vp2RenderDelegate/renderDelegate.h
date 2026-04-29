@@ -148,6 +148,8 @@ public:
     MHWRender::MShaderInstance*
     GetBasisCurvesCPVShader(const TfToken& curveType, const TfToken& curveBasis) const;
 
+    MHWRender::MShaderInstance* GetHoldoutShader() const;
+
     MHWRender::MShaderInstance* GetShaderFromCache(const TfToken& id);
     bool AddShaderToCache(const TfToken& id, const MHWRender::MShaderInstance& shader);
 #ifdef WANT_MATERIALX_BUILD
@@ -188,6 +190,8 @@ private:
     SdfPath _id;          //!< Render delegate ID
     HdVP2ResourceRegistry
         _resourceRegistryVP2; //!< VP2 resource registry used for enqueue and execution of commits
+
+    mutable HdVP2ShaderUniquePtr _holdoutShader;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

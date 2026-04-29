@@ -150,7 +150,8 @@ public:
         DirtySelectionMode = (DirtySelectionHighlight << 1),
         // Maya's display mode has changed, for example for shaded to wireframe
         DirtyDisplayMode = (DirtySelectionMode << 1),
-        DirtyBitLast = DirtyDisplayMode
+        DirtyBitLast = DirtyDisplayMode,
+        DirtyHoldout = (DirtyBitLast << 1)
     };
 
     static const MColor       kOpaqueBlue;           //!< Opaque blue
@@ -410,6 +411,8 @@ protected:
 
     //! For instanced prim, holds the corresponding path in USD prototype
     InstancePrototypePath _pathInPrototype { SdfPath(), kNativeInstancing };
+
+    bool _isHoldout { false };
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -35,6 +35,11 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
+TF_DEFINE_PRIVATE_TOKENS(
+    _holdoutTokens,
+    (holdOut)
+);
+
 const MColor MayaUsdRPrim::kOpaqueBlue(0.0f, 0.0f, 1.0f, 1.0f);
 const MColor MayaUsdRPrim::kOpaqueGray(.18f, .18f, .18f, 1.0f);
 
@@ -98,6 +103,15 @@ void MayaUsdCustomData::RemoveInstancePrimPaths(const SdfPath& prim)
 }
 
 #endif
+
+bool MayaUsdRPrim::_IsHoldout(HdSceneDelegate* delegate, const SdfPath& id)
+{
+    VtValue holdoutVal = delegate->Get(id, _holdoutTokens->holdOut);
+    if (holdoutVal.IsHolding<bool>()) {
+        return holdoutVal.UncheckedGet<bool>();
+    }
+    return false;
+}
 
 MayaUsdRPrim::MayaUsdRPrim(HdVP2RenderDelegate* delegate, const SdfPath& id)
     : _delegate(delegate)

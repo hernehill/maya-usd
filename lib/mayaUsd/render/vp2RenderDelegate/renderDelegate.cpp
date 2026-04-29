@@ -1189,6 +1189,30 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColo
     return sShaderCache.Get3dFatPointShader(color);
 }
 
+MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
+{
+    if (!_holdoutShader) {
+        // Acquire a solid color shader and set it to fully transparent black.
+        // The MaterialSceneItem type writes depth by default, so depth occlusion
+        // will work correctly.
+        MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
+        if (!renderer) return nullptr;
+        const MHWRender::MShaderManager* shaderMgr = renderer->getShaderManager();
+        if (!shaderMgr) return nullptr;
+
+        _holdoutShader.reset(shaderMgr->getStockShader(
+            MHWRender::MShaderManager::k3dSolidShader));
+
+        if (_holdoutShader) {
+            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            _holdoutShader->setParameter("solidColor", color);
+            // Mark as transparent so the blend state is set up correctly
+            _holdoutShader->setIsTransparent(true);
+        }
+    }
+    return _holdoutShader.get();
+}
+
 /*! \brief  Returns a sampler state as specified by the description.
  */
 const MHWRender::MSamplerState*

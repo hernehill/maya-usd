@@ -891,6 +891,20 @@ void HdVP2Mesh::Sync(
 #endif
     }
 
+    // Detect holdout attribute change
+    if (*dirtyBits & HdChangeTracker::DirtyPrimvar
+        || *dirtyBits & HdChangeTracker::DirtyMaterialId) {
+        bool newHoldout = _IsHoldout(delegate, id);
+        if (newHoldout != _isHoldout) {
+            _isHoldout = newHoldout;
+            // Force all draw items to re-evaluate their shader
+            RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& renderItemData) {
+                renderItemData.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
+            };
+            _ForEachRenderItem(_reprs, markMaterialDirty);
+        }
+    }
+
 #if defined(HD_API_VERSION) && HD_API_VERSION >= 36
     // Update our instance topology if necessary.
     _UpdateInstancer(delegate, dirtyBits);
@@ -1778,46 +1792,57 @@ void HdVP2Mesh::_UpdateDrawItem(
         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
         if (dirtyMaterialId) {
-            SdfPath materialId = GetMaterialId();
-            if (drawItemData._geomSubset.id != SdfPath::EmptyPath()) {
-                materialId = drawItemData._geomSubset.materialId;
-#if !defined(USD_IMAGING_API_VERSION) || USD_IMAGING_API_VERSION < 18
-                materialId = usdImagingDelegate->ConvertCachePathToIndexPath(materialId);
-#endif
-            }
-            const HdVP2Material* material = static_cast<const HdVP2Material*>(
-                renderIndex.GetSprim(HdPrimTypeTokens->material, materialId));
 
-            if (material) {
-                const MString optionVarName(
-                    MayaUsdOptionVars->ShowDisplayColorTextureOff.GetText());
-
-                // if untextured mode with show display color specified, use fallback shader
-                if ((reprToken == HdVP2ReprTokens->smoothHullUntextured)
-                    && (MGlobal::optionVarIntValue(
-                            MayaUsdOptionVars->ShowDisplayColorTextureOff.GetText())
-                        != 0)) {
-                    drawItemData._shaderIsFallback = true;
-                } else {
-                    const HdCullStyle cullStyle = GetCullStyle(sceneDelegate);
-                    bool              useBackfaceCulling
-                        = (cullStyle == HdCullStyleDontCare && !IsDoubleSided(sceneDelegate))
-                        || (cullStyle == HdCullStyleBack)
-                        || (cullStyle == HdCullStyleBackUnlessDoubleSided
-                            && !IsDoubleSided(sceneDelegate));
-                    MHWRender::MShaderInstance* shader = material->GetSurfaceShader(
-                        _GetMaterialNetworkToken(reprToken), useBackfaceCulling);
-                    if (shader != nullptr
-                        && (shader != drawItemData._shader || shader != stateToCommit._shader)) {
-                        drawItemData._shader = shader;
-                        drawItemData._shaderIsFallback = false;
-                        stateToCommit._shader = shader;
-                        stateToCommit._isTransparent
-                            = shader->isTransparent() || renderItemData._transparent;
-                    }
+            if (_isHoldout) {
+                MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
+                if (holdoutShader && holdoutShader != drawItemData._shader) {
+                    drawItemData._shader       = holdoutShader;
+                    drawItemData._shaderIsFallback = false;
+                    stateToCommit._shader      = holdoutShader;
+                    stateToCommit._isTransparent = true;  // allows alpha=0 blending
                 }
             } else {
-                drawItemData._shaderIsFallback = true;
+                SdfPath materialId = GetMaterialId();
+                if (drawItemData._geomSubset.id != SdfPath::EmptyPath()) {
+                    materialId = drawItemData._geomSubset.materialId;
+#if !defined(USD_IMAGING_API_VERSION) || USD_IMAGING_API_VERSION < 18
+                    materialId = usdImagingDelegate->ConvertCachePathToIndexPath(materialId);
+#endif
+                }
+                const HdVP2Material* material = static_cast<const HdVP2Material*>(
+                    renderIndex.GetSprim(HdPrimTypeTokens->material, materialId));
+
+                if (material) {
+                    const MString optionVarName(
+                        MayaUsdOptionVars->ShowDisplayColorTextureOff.GetText());
+
+                    // if untextured mode with show display color specified, use fallback shader
+                    if ((reprToken == HdVP2ReprTokens->smoothHullUntextured)
+                        && (MGlobal::optionVarIntValue(
+                                MayaUsdOptionVars->ShowDisplayColorTextureOff.GetText())
+                            != 0)) {
+                        drawItemData._shaderIsFallback = true;
+                    } else {
+                        const HdCullStyle cullStyle = GetCullStyle(sceneDelegate);
+                        bool              useBackfaceCulling
+                            = (cullStyle == HdCullStyleDontCare && !IsDoubleSided(sceneDelegate))
+                            || (cullStyle == HdCullStyleBack)
+                            || (cullStyle == HdCullStyleBackUnlessDoubleSided
+                                && !IsDoubleSided(sceneDelegate));
+                        MHWRender::MShaderInstance* shader = material->GetSurfaceShader(
+                            _GetMaterialNetworkToken(reprToken), useBackfaceCulling);
+                        if (shader != nullptr
+                            && (shader != drawItemData._shader || shader != stateToCommit._shader)) {
+                            drawItemData._shader = shader;
+                            drawItemData._shaderIsFallback = false;
+                            stateToCommit._shader = shader;
+                            stateToCommit._isTransparent
+                                = shader->isTransparent() || renderItemData._transparent;
+                        }
+                    }
+                } else {
+                    drawItemData._shaderIsFallback = true;
+                }
             }
         }
 
@@ -2267,6 +2292,11 @@ void HdVP2Mesh::_UpdateDrawItem(
                 bool success = renderItem->setShader(stateToCommit._shader);
                 TF_VERIFY(success);
                 renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
+
+                if (_isHoldout) {
+                    renderItem->castsShadows(false);
+                    renderItem->receivesShadows(false);
+                }
             }
 
             // If the enable state is changed, then update it.
