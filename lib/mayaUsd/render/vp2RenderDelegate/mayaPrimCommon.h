@@ -371,7 +371,11 @@ protected:
         MUint64               exclusionFlag) const;
 #endif
 
+    //! Helper utility function to determine if the RPrim is tagged to be holdout
     bool _IsHoldout(const SdfPath& id) const;
+
+    //! Member variable to store the state of the RPrim holdout
+    bool _isHoldout { false };
 
     virtual TfToken& _RenderTag() = 0;
 
@@ -412,8 +416,6 @@ protected:
 
     //! For instanced prim, holds the corresponding path in USD prototype
     InstancePrototypePath _pathInPrototype { SdfPath(), kNativeInstancing };
-
-    bool _isHoldout { false };
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
