@@ -101,7 +101,7 @@ void MayaUsdCustomData::RemoveInstancePrimPaths(const SdfPath& prim)
 
 #endif
 
-bool MayaUsdRPrim::_IsHoldout(HdSceneDelegate* delegate, const SdfPath& id)
+bool MayaUsdRPrim::_IsHoldout(const SdfPath& id) const
 {
     // GetPrimvarDescriptors only returns primvars the imaging adapter registered,
     // so custom primvars like "maya:holdout" won't appear there.

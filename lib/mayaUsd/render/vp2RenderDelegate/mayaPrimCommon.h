@@ -372,7 +372,7 @@ protected:
         MUint64               exclusionFlag) const;
 #endif
 
-    static bool _IsHoldout(HdSceneDelegate* delegate, const SdfPath& id);
+    bool _IsHoldout(const SdfPath& id) const;
 
     virtual TfToken& _RenderTag() = 0;
 

@@ -893,7 +893,7 @@ void HdVP2Mesh::Sync(
 
     // Detect holdout attribute change - always check, not just when dirty
     {
-        bool newHoldout = _IsHoldout(delegate, id);
+        bool newHoldout = _IsHoldout(id);
         if (newHoldout != _isHoldout) {
             _isHoldout = newHoldout;
             // Force DirtyMaterialId into the main dirty bits so _UpdateDrawItem sees it
