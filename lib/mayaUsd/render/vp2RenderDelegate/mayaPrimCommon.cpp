@@ -124,7 +124,7 @@ bool MayaUsdRPrim::_IsHoldout(const SdfPath& id) const
     fprintf(stderr, "[holdout] checking USD prim at: %s\n", usdPath.GetText());
     fflush(stderr);
 
-    UsdStagePtr stage = usdDelegate->GetUsdStage();
+    UsdStagePtr stage = usdDelegate->GetStage();
     if (!stage) {
         return false;
     }
