@@ -108,22 +108,39 @@ void MayaUsdCustomData::RemoveInstancePrimPaths(const SdfPath& prim)
 
 bool MayaUsdRPrim::_IsHoldout(HdSceneDelegate* delegate, const SdfPath& id)
 {
-    // Walk all constant primvars on this prim and look for "maya:holdout"
+    fprintf(stderr, "[holdout] _IsHoldout called for: %s\n", id.GetText());
+    fflush(stderr);
+
     HdPrimvarDescriptorVector primvars =
         delegate->GetPrimvarDescriptors(id, HdInterpolationConstant);
 
+    fprintf(stderr, "[holdout] constant primvar count: %zu\n", primvars.size());
+    fflush(stderr);
     for (const HdPrimvarDescriptor& pv : primvars) {
+        fprintf(stderr, "[holdout]   primvar: %s\n", pv.name.GetText());
+        fflush(stderr);
         if (pv.name == _holdoutTokens->mayaHoldout) {
             VtValue val = delegate->Get(id, pv.name);
+            fprintf(stderr, "[holdout]   found! typeName: %s\n", val.GetTypeName().c_str());
+            fflush(stderr);
             if (val.IsHolding<bool>()) {
-                return val.UncheckedGet<bool>();
+                bool result = val.UncheckedGet<bool>();
+                fprintf(stderr, "[holdout]   bool result: %d\n", (int)result);
+                fflush(stderr);
+                return result;
             }
-            // Also accept int in case Python authors it as 0/1
             if (val.IsHolding<int>()) {
-                return val.UncheckedGet<int>() != 0;
+                int result = val.UncheckedGet<int>();
+                fprintf(stderr, "[holdout]   int result: %d\n", result);
+                fflush(stderr);
+                return result != 0;
             }
+            fprintf(stderr, "[holdout]   unrecognized type: %s, ignoring\n", val.GetTypeName().c_str());
+            fflush(stderr);
         }
     }
+    fprintf(stderr, "[holdout]   primvar not found\n");
+    fflush(stderr);
     return false;
 }
 
