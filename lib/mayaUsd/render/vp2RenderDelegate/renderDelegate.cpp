@@ -1192,22 +1192,46 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColo
 MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
 {
     if (!_holdoutShader) {
-        // Acquire a solid color shader and set it to fully transparent black.
-        // The MaterialSceneItem type writes depth by default, so depth occlusion
-        // will work correctly.
         MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
         if (!renderer) return nullptr;
         const MHWRender::MShaderManager* shaderMgr = renderer->getShaderManager();
         if (!shaderMgr) return nullptr;
 
-        _holdoutShader.reset(shaderMgr->getStockShader(
-            MHWRender::MShaderManager::k3dSolidShader));
+        // Use the solid shader as a base — we only need it to drive
+        // the depth write. The blend state below will discard its color output.
+        _holdoutShader.reset(
+            shaderMgr->getStockShader(MHWRender::MShaderManager::k3dSolidShader));
 
         if (_holdoutShader) {
-            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            _holdoutShader->setParameter("solidColor", color);
-            // Mark as transparent so the blend state is set up correctly
-            _holdoutShader->setIsTransparent(true);
+            // Output black — color doesn't matter because the blend state
+            // below uses (ZERO, ONE) which keeps the destination unchanged.
+            const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            _holdoutShader->setParameter("solidColor", black);
+
+            // Build a blend state that:
+            //   color: srcFactor=ZERO, dstFactor=ONE  → dst color is preserved
+            //   alpha: srcFactor=ZERO, dstFactor=ONE  → dst alpha is preserved
+            // This means the shader writes DEPTH (via the depth buffer, unaffected
+            // by blend state) but leaves the COLOR BUFFER completely unchanged,
+            // effectively making the pixels "see through" to the image plane.
+            MHWRender::MBlendStateDesc blendDesc;
+            blendDesc.targetBlend[0].blendEnable       = true;
+            blendDesc.targetBlend[0].sourceBlend        = MHWRender::MBlendStatDesc::kZero;
+            blendDesc.targetBlend[0].destinationBlend   = MHWRender::MBlendStatDesc::kOne;
+            blendDesc.targetBlend[0].blendOperation     = MHWRender::MBlendStatDesc::kAdd;
+            blendDesc.targetBlend[0].alphaSourceBlend   = MHWRender::MBlendStatDesc::kZero;
+            blendDesc.targetBlend[0].alphaDestinationBlend = MHWRender::MBlendStatDesc::kOne;
+            blendDesc.targetBlend[0].alphaBlendOperation = MHWRender::MBlendStatDesc::kAdd;
+
+            const MHWRender::MBlendState* blendState =
+                MHWRender::MStateManager::acquireBlendState(blendDesc);
+            if (blendState) {
+                _holdoutShader->setOverrideBlendState(blendState);
+            }
+
+            // DO NOT call setIsTransparent(true) — that would put this item
+            // into the transparent pass which sorts after opaque geometry and
+            // breaks depth occlusion of other USD prims.
         }
     }
     return _holdoutShader.get();

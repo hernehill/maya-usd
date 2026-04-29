@@ -1799,7 +1799,7 @@ void HdVP2Mesh::_UpdateDrawItem(
                     drawItemData._shader       = holdoutShader;
                     drawItemData._shaderIsFallback = false;
                     stateToCommit._shader      = holdoutShader;
-                    stateToCommit._isTransparent = true;  // allows alpha=0 blending
+                    stateToCommit._isTransparent = false;  // stays opaque for depth ordering
                 }
             } else {
                 SdfPath materialId = GetMaterialId();
@@ -2294,11 +2294,8 @@ void HdVP2Mesh::_UpdateDrawItem(
             if (stateToCommit._shader != nullptr) {
                 bool success = renderItem->setShader(stateToCommit._shader);
                 TF_VERIFY(success);
-                renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
-
-                if (isHoldout) {
-                    renderItem->castsShadows(false);
-                    renderItem->receivesShadows(false);
+                if (!isHoldout) {
+                    renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
                 }
             }
 
@@ -2781,9 +2778,17 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
     }
 
     renderItem->setDrawMode(drawMode);
-    renderItem->setExcludedFromPostEffects(false);
-    renderItem->castsShadows(true);
-    renderItem->receivesShadows(true);
+
+    if (_isHoldout) {
+        renderItem->setExcludedFromPostEffects(true);  // no SSAO/DOF/motion blur on holdout
+        renderItem->castsShadows(false);
+        renderItem->receivesShadows(false);
+    } else {
+        renderItem->setExcludedFromPostEffects(false);
+        renderItem->castsShadows(true);
+        renderItem->receivesShadows(true);
+    }
+
     renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
     _InitRenderItemCommon(renderItem);
 
