@@ -891,13 +891,14 @@ void HdVP2Mesh::Sync(
 #endif
     }
 
-    // Detect holdout attribute change
-    if (*dirtyBits & HdChangeTracker::DirtyPrimvar
-        || *dirtyBits & HdChangeTracker::DirtyMaterialId) {
+    // Detect holdout attribute change - always check, not just when dirty
+    {
         bool newHoldout = _IsHoldout(delegate, id);
         if (newHoldout != _isHoldout) {
             _isHoldout = newHoldout;
-            // Force all draw items to re-evaluate their shader
+            // Force DirtyMaterialId into the main dirty bits so _UpdateDrawItem sees it
+            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
+            // Also mark existing render items dirty (for live changes after first sync)
             RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& renderItemData) {
                 renderItemData.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
             };
@@ -1846,8 +1847,10 @@ void HdVP2Mesh::_UpdateDrawItem(
             }
         }
 
-        bool useFallbackMaterial
-            = drawItemData._shaderIsFallback && _PrimvarIsRequired(HdTokens->displayColor);
+        bool useFallbackMaterial = !_isHoldout
+            && drawItemData._shaderIsFallback
+            && _PrimvarIsRequired(HdTokens->displayColor);
+
         bool updateFallbackMaterial = useFallbackMaterial && drawItemData._fallbackColorDirty;
 
         // Use fallback shader if there is no material binding or we failed to create a shader
