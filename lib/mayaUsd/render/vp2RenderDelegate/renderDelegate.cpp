@@ -1215,13 +1215,13 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
             // by blend state) but leaves the COLOR BUFFER completely unchanged,
             // effectively making the pixels "see through" to the image plane.
             MHWRender::MBlendStateDesc blendDesc;
-            blendDesc.targetBlend[0].blendEnable       = true;
-            blendDesc.targetBlend[0].sourceBlend        = MHWRender::MBlendStatDesc::kZero;
-            blendDesc.targetBlend[0].destinationBlend   = MHWRender::MBlendStatDesc::kOne;
-            blendDesc.targetBlend[0].blendOperation     = MHWRender::MBlendStatDesc::kAdd;
-            blendDesc.targetBlend[0].alphaSourceBlend   = MHWRender::MBlendStatDesc::kZero;
-            blendDesc.targetBlend[0].alphaDestinationBlend = MHWRender::MBlendStatDesc::kOne;
-            blendDesc.targetBlend[0].alphaBlendOperation = MHWRender::MBlendStatDesc::kAdd;
+            blendDesc.targetBlends[0].blendEnable       = true;
+            blendDesc.targetBlends[0].sourceBlend        = MHWRender::MBlendStatDesc::kZero;
+            blendDesc.targetBlends[0].destinationBlend   = MHWRender::MBlendStatDesc::kOne;
+            blendDesc.targetBlends[0].blendOperation     = MHWRender::MBlendStatDesc::kAdd;
+            blendDesc.targetBlends[0].alphaSourceBlend   = MHWRender::MBlendStatDesc::kZero;
+            blendDesc.targetBlends[0].alphaDestinationBlend = MHWRender::MBlendStatDesc::kOne;
+            blendDesc.targetBlends[0].alphaBlendOperation = MHWRender::MBlendStatDesc::kAdd;
 
             const MHWRender::MBlendState* blendState =
                 MHWRender::MStateManager::acquireBlendState(blendDesc);
