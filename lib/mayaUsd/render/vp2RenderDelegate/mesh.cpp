@@ -2263,6 +2263,8 @@ void HdVP2Mesh::_UpdateDrawItem(
         indexBuffer = const_cast<MHWRender::MIndexBuffer*>(sharedBBoxGeom.GetIndexBuffer());
     }
 
+    const bool isHoldout = _isHoldout;
+
     // We can get an empty stateToCommit when viewport draw modes change. In this case every
     // rprim is marked dirty to give any stale render items a chance to update. If there are
     // no stale render items then stateToCommit can be empty!
@@ -2273,6 +2275,7 @@ void HdVP2Mesh::_UpdateDrawItem(
                                                            primvars,
                                                            indexBuffer,
                                                            isBBoxItem,
+                                                           isHoldout,
                                                            &sharedBBoxGeom]() {
             // This code executes serially, once per mesh updated. Keep
             // performance in mind while modifying this code.
@@ -2293,7 +2296,7 @@ void HdVP2Mesh::_UpdateDrawItem(
                 TF_VERIFY(success);
                 renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
 
-                if (_isHoldout) {
+                if (isHoldout) {
                     renderItem->castsShadows(false);
                     renderItem->receivesShadows(false);
                 }
