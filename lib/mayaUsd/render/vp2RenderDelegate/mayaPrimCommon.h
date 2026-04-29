@@ -372,6 +372,8 @@ protected:
         MUint64               exclusionFlag) const;
 #endif
 
+    static bool _IsHoldout(HdSceneDelegate* delegate, const SdfPath& id);
+
     virtual TfToken& _RenderTag() = 0;
 
     //! VP2 render delegate for which this prim was created
