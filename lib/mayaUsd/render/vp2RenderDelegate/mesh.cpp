@@ -1806,6 +1806,8 @@ void HdVP2Mesh::_UpdateDrawItem(
                     drawItemData._shader       = holdoutShader;
                     drawItemData._shaderIsFallback = false;
                     stateToCommit._shader      = holdoutShader;
+                    // Keep in the opaque pass so depth is written before image plane.
+                    // Color mask is disabled in the commit lambda below.
                     stateToCommit._isTransparent = false;
                     fprintf(stderr, "[holdout] holdout shader assigned to stateToCommit\n");
                     fflush(stderr);
@@ -2310,6 +2312,10 @@ void HdVP2Mesh::_UpdateDrawItem(
                 TF_VERIFY(success);
                 if (!isHoldout) {
                     renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
+                } else {
+                    // Holdout: disable all color writes so the prim punches through
+                    // to the image plane. Depth is still written normally.
+                    renderItem->setColorMask(MHWRender::MRenderItem::kColorMaskNone);
                 }
             }
 
