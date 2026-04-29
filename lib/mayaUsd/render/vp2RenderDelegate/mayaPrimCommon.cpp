@@ -23,8 +23,6 @@
 
 #include <pxr/usdImaging/usdImaging/delegate.h>
 
-#include <pxr/usd/usdGeom/primvarsAPI.h>
-
 #ifdef MAYA_HAS_DISPLAY_LAYER_API
 #include <mayaUsd/utils/util.h>
 
@@ -103,9 +101,9 @@ void MayaUsdCustomData::RemoveInstancePrimPaths(const SdfPath& prim)
 
 bool MayaUsdRPrim::_IsHoldout(const SdfPath& id) const
 {
-    // GetPrimvarDescriptors only returns primvars the imaging adapter registered,
-    // so custom primvars like "maya:holdout" won't appear there.
-    // Go directly to the USD prim via UsdImagingDelegate instead.
+    // GetPrimvarDescriptors only lists primvars the adapter has registered.
+    // For custom primvars, call Get() directly with the primvar token.
+    // UsdImagingDelegate::Get() with a primvar name reads it straight from USD.
     auto* const          param = static_cast<HdVP2RenderParam*>(_delegate->GetRenderParam());
     ProxyRenderDelegate& drawScene = param->GetDrawScene();
     UsdImagingDelegate*  usdDelegate = drawScene.GetUsdImagingDelegate();
@@ -113,41 +111,23 @@ bool MayaUsdRPrim::_IsHoldout(const SdfPath& id) const
         return false;
     }
 
-    // In USD_IMAGING_API_VERSION >= 18 the index path == cache path.
-    // In older versions we must convert.
-#if !defined(USD_IMAGING_API_VERSION) || USD_IMAGING_API_VERSION < 18
-    SdfPath usdPath = usdDelegate->ConvertIndexPathToCachePath(id);
-#else
-    const SdfPath& usdPath = id;
-#endif
+    // UsdImagingDelegate::Get() accepts the primvar name directly (without "primvars:" prefix)
+    VtValue val = usdDelegate->Get(id, TfToken("maya:holdout"));
 
-    fprintf(stderr, "[holdout] checking USD prim at: %s\n", usdPath.GetText());
+    fprintf(stderr, "[holdout] Get(maya:holdout) for %s -> typeName: %s\n",
+        id.GetText(), val.GetTypeName().c_str());
     fflush(stderr);
 
-    UsdStagePtr stage = usdDelegate->GetStage();
-    if (!stage) {
-        return false;
-    }
-
-    UsdPrim prim = stage->GetPrimAtPath(usdPath);
-    if (!prim.IsValid()) {
-        fprintf(stderr, "[holdout] prim not valid at %s\n", usdPath.GetText());
+    if (val.IsHolding<bool>()) {
+        bool result = val.UncheckedGet<bool>();
+        fprintf(stderr, "[holdout] bool value: %d\n", (int)result);
         fflush(stderr);
-        return false;
+        return result;
     }
-
-    UsdGeomPrimvarsAPI primvarsAPI(prim);
-    UsdGeomPrimvar holdoutPrimvar = primvarsAPI.GetPrimvar(TfToken("maya:holdout"));
-
-    if (!holdoutPrimvar.IsDefined()) {
-        return false;
+    if (val.IsHolding<int>()) {
+        return val.UncheckedGet<int>() != 0;
     }
-
-    bool value = false;
-    holdoutPrimvar.Get(&value);
-    fprintf(stderr, "[holdout] maya:holdout = %d\n", (int)value);
-    fflush(stderr);
-    return value;
+    return false;
 }
 
 MayaUsdRPrim::MayaUsdRPrim(HdVP2RenderDelegate* delegate, const SdfPath& id)
