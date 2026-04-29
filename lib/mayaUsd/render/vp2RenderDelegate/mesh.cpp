@@ -1806,9 +1806,10 @@ void HdVP2Mesh::_UpdateDrawItem(
                     drawItemData._shader       = holdoutShader;
                     drawItemData._shaderIsFallback = false;
                     stateToCommit._shader      = holdoutShader;
-                    // Keep in the opaque pass so depth is written before image plane.
-                    // Color mask is disabled in the commit lambda below.
-                    stateToCommit._isTransparent = false;
+                    // Put in transparent pass with alpha=0 so VP2 blends:
+                    // result = 0*black + 1*dst = image plane shows through.
+                    // Depth is still written in the transparent pass.
+                    stateToCommit._isTransparent = true;
                     fprintf(stderr, "[holdout] holdout shader assigned to stateToCommit\n");
                     fflush(stderr);
                 } else {
@@ -2279,8 +2280,6 @@ void HdVP2Mesh::_UpdateDrawItem(
         indexBuffer = const_cast<MHWRender::MIndexBuffer*>(sharedBBoxGeom.GetIndexBuffer());
     }
 
-    const bool isHoldout = _isHoldout;
-
     // We can get an empty stateToCommit when viewport draw modes change. In this case every
     // rprim is marked dirty to give any stale render items a chance to update. If there are
     // no stale render items then stateToCommit can be empty!
@@ -2291,7 +2290,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                                                            primvars,
                                                            indexBuffer,
                                                            isBBoxItem,
-                                                           isHoldout,
                                                            &sharedBBoxGeom]() {
             // This code executes serially, once per mesh updated. Keep
             // performance in mind while modifying this code.
@@ -2310,13 +2308,7 @@ void HdVP2Mesh::_UpdateDrawItem(
             if (stateToCommit._shader != nullptr) {
                 bool success = renderItem->setShader(stateToCommit._shader);
                 TF_VERIFY(success);
-                if (!isHoldout) {
-                    renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
-                } else {
-                    // Holdout: disable all color writes so the prim punches through
-                    // to the image plane. Depth is still written normally.
-                    renderItem->setColorMask(MHWRender::MRenderItem::kColorMaskNone);
-                }
+                renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
             }
 
             // If the enable state is changed, then update it.
