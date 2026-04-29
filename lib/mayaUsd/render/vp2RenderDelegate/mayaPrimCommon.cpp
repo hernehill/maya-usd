@@ -37,7 +37,9 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 TF_DEFINE_PRIVATE_TOKENS(
     _holdoutTokens,
-    (holdOut)
+    // Primvar name as authored: "primvars:maya:holdout"
+    // Hydra strips the "primvars:" prefix, leaving "maya:holdout"
+    ((mayaHoldout, "maya:holdout"))
 );
 
 const MColor MayaUsdRPrim::kOpaqueBlue(0.0f, 0.0f, 1.0f, 1.0f);
@@ -106,9 +108,21 @@ void MayaUsdCustomData::RemoveInstancePrimPaths(const SdfPath& prim)
 
 bool MayaUsdRPrim::_IsHoldout(HdSceneDelegate* delegate, const SdfPath& id)
 {
-    VtValue holdoutVal = delegate->Get(id, _holdoutTokens->holdOut);
-    if (holdoutVal.IsHolding<bool>()) {
-        return holdoutVal.UncheckedGet<bool>();
+    // Walk all constant primvars on this prim and look for "maya:holdout"
+    HdPrimvarDescriptorVector primvars =
+        delegate->GetPrimvarDescriptors(id, HdInterpolationConstant);
+
+    for (const HdPrimvarDescriptor& pv : primvars) {
+        if (pv.name == _holdoutTokens->mayaHoldout) {
+            VtValue val = delegate->Get(id, pv.name);
+            if (val.IsHolding<bool>()) {
+                return val.UncheckedGet<bool>();
+            }
+            // Also accept int in case Python authors it as 0/1
+            if (val.IsHolding<int>()) {
+                return val.UncheckedGet<int>() != 0;
+            }
+        }
     }
     return false;
 }
