@@ -1795,25 +1795,12 @@ void HdVP2Mesh::_UpdateDrawItem(
         if (dirtyMaterialId) {
 
             if (_isHoldout) {
-                fprintf(stderr, "[holdout] _UpdateDrawItem: _isHoldout=true, dirtyMaterialId=true for item\n");
-                fflush(stderr);
                 MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
-                fprintf(stderr, "[holdout] holdoutShader: %s, current shader: %s\n",
-                    holdoutShader ? "valid" : "NULL",
-                    drawItemData._shader ? "set" : "NULL");
-                fflush(stderr);
                 if (holdoutShader && holdoutShader != drawItemData._shader) {
                     drawItemData._shader       = holdoutShader;
                     drawItemData._shaderIsFallback = false;
                     stateToCommit._shader      = holdoutShader;
-                    // The HoldOut effects shader handles depth write internally.
-                    // Keep opaque so it renders in the correct pass order.
                     stateToCommit._isTransparent = false;
-                    fprintf(stderr, "[holdout] holdout shader assigned to stateToCommit\n");
-                    fflush(stderr);
-                } else {
-                    fprintf(stderr, "[holdout] shader NOT reassigned (already set or null)\n");
-                    fflush(stderr);
                 }
             } else {
                 SdfPath materialId = GetMaterialId();

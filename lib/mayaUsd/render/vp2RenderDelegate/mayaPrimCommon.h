@@ -150,8 +150,7 @@ public:
         DirtySelectionMode = (DirtySelectionHighlight << 1),
         // Maya's display mode has changed, for example for shaded to wireframe
         DirtyDisplayMode = (DirtySelectionMode << 1),
-        DirtyBitLast = DirtyDisplayMode,
-        DirtyHoldout = (DirtyBitLast << 1)
+        DirtyBitLast = DirtyDisplayMode
     };
 
     static const MColor       kOpaqueBlue;           //!< Opaque blue

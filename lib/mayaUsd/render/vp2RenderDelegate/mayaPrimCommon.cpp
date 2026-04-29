@@ -114,15 +114,8 @@ bool MayaUsdRPrim::_IsHoldout(const SdfPath& id) const
     // UsdImagingDelegate::Get() accepts the primvar name directly (without "primvars:" prefix)
     VtValue val = usdDelegate->Get(id, TfToken("maya:holdout"));
 
-    fprintf(stderr, "[holdout] Get(maya:holdout) for %s -> typeName: %s\n",
-        id.GetText(), val.GetTypeName().c_str());
-    fflush(stderr);
-
     if (val.IsHolding<bool>()) {
-        bool result = val.UncheckedGet<bool>();
-        fprintf(stderr, "[holdout] bool value: %d\n", (int)result);
-        fflush(stderr);
-        return result;
+        return val.UncheckedGet<bool>();
     }
     if (val.IsHolding<int>()) {
         return val.UncheckedGet<int>() != 0;
