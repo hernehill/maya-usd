@@ -1,0 +1,336 @@
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.cpp b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.cpp
+index 2b2d2d90e..914246077 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.cpp
+@@ -99,6 +99,30 @@ void MayaUsdCustomData::RemoveInstancePrimPaths(const SdfPath& prim)
+ 
+ #endif
+ 
++bool MayaUsdRPrim::_IsHoldout(const SdfPath& id) const
++{
++    // GetPrimvarDescriptors only lists primvars the adapter has registered.
++    // For custom primvars, call Get() directly with the primvar token.
++    // UsdImagingDelegate::Get() with a primvar name reads it straight from USD.
++    auto* const          param = static_cast<HdVP2RenderParam*>(_delegate->GetRenderParam());
++    ProxyRenderDelegate& drawScene = param->GetDrawScene();
++    UsdImagingDelegate*  usdDelegate = drawScene.GetUsdImagingDelegate();
++    if (!usdDelegate) {
++        return false;
++    }
++
++    // UsdImagingDelegate::Get() accepts the primvar name directly (without "primvars:" prefix)
++    VtValue val = usdDelegate->Get(id, TfToken("maya:holdout"));
++
++    if (val.IsHolding<bool>()) {
++        return val.UncheckedGet<bool>();
++    }
++    if (val.IsHolding<int>()) {
++        return val.UncheckedGet<int>() != 0;
++    }
++    return false;
++}
++
+ MayaUsdRPrim::MayaUsdRPrim(HdVP2RenderDelegate* delegate, const SdfPath& id)
+     : _delegate(delegate)
+     , _hydraId(id)
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h
+index 85c42184a..85eef1313 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h
+@@ -371,6 +371,12 @@ protected:
+         MUint64               exclusionFlag) const;
+ #endif
+ 
++    //! Helper utility function to determine if the RPrim is tagged to be holdout
++    bool _IsHoldout(const SdfPath& id) const;
++
++    //! Member variable to store the state of the RPrim holdout
++    bool _isHoldout { false };
++
+     virtual TfToken& _RenderTag() = 0;
+ 
+     //! VP2 render delegate for which this prim was created
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+index 3b6465302..dbf21d0bb 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+@@ -891,6 +891,21 @@ void HdVP2Mesh::Sync(
+ #endif
+     }
+ 
++    // Detect holdout attribute change - always check, not just when dirty
++    {
++        bool newHoldout = _IsHoldout(id);
++        if (newHoldout != _isHoldout) {
++            _isHoldout = newHoldout;
++            // Force DirtyMaterialId into the main dirty bits so _UpdateDrawItem sees it
++            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
++            // Also mark existing render items dirty (for live changes after first sync)
++            RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& renderItemData) {
++                renderItemData.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
++            };
++            _ForEachRenderItem(_reprs, markMaterialDirty);
++        }
++    }
++
+ #if defined(HD_API_VERSION) && HD_API_VERSION >= 36
+     // Update our instance topology if necessary.
+     _UpdateInstancer(delegate, dirtyBits);
+@@ -1778,51 +1793,64 @@ void HdVP2Mesh::_UpdateDrawItem(
+         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
+         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
+         if (dirtyMaterialId) {
+-            SdfPath materialId = GetMaterialId();
+-            if (drawItemData._geomSubset.id != SdfPath::EmptyPath()) {
+-                materialId = drawItemData._geomSubset.materialId;
++
++            if (_isHoldout) {
++                MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
++                if (holdoutShader && holdoutShader != drawItemData._shader) {
++                    drawItemData._shader           = holdoutShader;
++                    drawItemData._shaderIsFallback = false;
++                    stateToCommit._shader          = holdoutShader;
++                    stateToCommit._isTransparent   = false;
++                }
++            } else {
++                SdfPath materialId = GetMaterialId();
++                if (drawItemData._geomSubset.id != SdfPath::EmptyPath()) {
++                    materialId = drawItemData._geomSubset.materialId;
+ #if !defined(USD_IMAGING_API_VERSION) || USD_IMAGING_API_VERSION < 18
+-                materialId = usdImagingDelegate->ConvertCachePathToIndexPath(materialId);
++                    materialId = usdImagingDelegate->ConvertCachePathToIndexPath(materialId);
+ #endif
+-            }
+-            const HdVP2Material* material = static_cast<const HdVP2Material*>(
+-                renderIndex.GetSprim(HdPrimTypeTokens->material, materialId));
+-
+-            if (material) {
+-                const MString optionVarName(
+-                    MayaUsdOptionVars->ShowDisplayColorTextureOff.GetText());
++                }
++                const HdVP2Material* material = static_cast<const HdVP2Material*>(
++                    renderIndex.GetSprim(HdPrimTypeTokens->material, materialId));
+ 
+-                // if untextured mode with show display color specified, use fallback shader
+-                if ((reprToken == HdVP2ReprTokens->smoothHullUntextured)
+-                    && (MGlobal::optionVarIntValue(
+-                            MayaUsdOptionVars->ShowDisplayColorTextureOff.GetText())
+-                        != 0)) {
+-                    drawItemData._shaderIsFallback = true;
+-                } else {
+-                    const HdCullStyle cullStyle = GetCullStyle(sceneDelegate);
+-                    bool              useBackfaceCulling
+-                        = (cullStyle == HdCullStyleDontCare && !IsDoubleSided(sceneDelegate))
+-                        || (cullStyle == HdCullStyleBack)
+-                        || (cullStyle == HdCullStyleBackUnlessDoubleSided
+-                            && !IsDoubleSided(sceneDelegate));
+-                    MHWRender::MShaderInstance* shader = material->GetSurfaceShader(
+-                        _GetMaterialNetworkToken(reprToken), useBackfaceCulling);
+-                    if (shader != nullptr
+-                        && (shader != drawItemData._shader || shader != stateToCommit._shader)) {
+-                        drawItemData._shader = shader;
+-                        drawItemData._shaderIsFallback = false;
+-                        stateToCommit._shader = shader;
+-                        stateToCommit._isTransparent
+-                            = shader->isTransparent() || renderItemData._transparent;
++                if (material) {
++                    const MString optionVarName(
++                        MayaUsdOptionVars->ShowDisplayColorTextureOff.GetText());
++
++                    // if untextured mode with show display color specified, use fallback shader
++                    if ((reprToken == HdVP2ReprTokens->smoothHullUntextured)
++                        && (MGlobal::optionVarIntValue(
++                                MayaUsdOptionVars->ShowDisplayColorTextureOff.GetText())
++                            != 0)) {
++                        drawItemData._shaderIsFallback = true;
++                    } else {
++                        const HdCullStyle cullStyle = GetCullStyle(sceneDelegate);
++                        bool              useBackfaceCulling
++                            = (cullStyle == HdCullStyleDontCare && !IsDoubleSided(sceneDelegate))
++                            || (cullStyle == HdCullStyleBack)
++                            || (cullStyle == HdCullStyleBackUnlessDoubleSided
++                                && !IsDoubleSided(sceneDelegate));
++                        MHWRender::MShaderInstance* shader = material->GetSurfaceShader(
++                            _GetMaterialNetworkToken(reprToken), useBackfaceCulling);
++                        if (shader != nullptr
++                            && (shader != drawItemData._shader || shader != stateToCommit._shader)) {
++                            drawItemData._shader = shader;
++                            drawItemData._shaderIsFallback = false;
++                            stateToCommit._shader = shader;
++                            stateToCommit._isTransparent
++                                = shader->isTransparent() || renderItemData._transparent;
++                        }
+                     }
++                } else {
++                    drawItemData._shaderIsFallback = true;
+                 }
+-            } else {
+-                drawItemData._shaderIsFallback = true;
+             }
+         }
+ 
+-        bool useFallbackMaterial
+-            = drawItemData._shaderIsFallback && _PrimvarIsRequired(HdTokens->displayColor);
++        bool useFallbackMaterial = !_isHoldout
++            && drawItemData._shaderIsFallback
++            && _PrimvarIsRequired(HdTokens->displayColor);
++
+         bool updateFallbackMaterial = useFallbackMaterial && drawItemData._fallbackColorDirty;
+ 
+         // Use fallback shader if there is no material binding or we failed to create a shader
+@@ -2748,9 +2776,17 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
+     }
+ 
+     renderItem->setDrawMode(drawMode);
+-    renderItem->setExcludedFromPostEffects(false);
+-    renderItem->castsShadows(true);
+-    renderItem->receivesShadows(true);
++
++    if (_isHoldout) {
++        renderItem->setExcludedFromPostEffects(true);  // no SSAO/DOF/motion blur on holdout
++        renderItem->castsShadows(false);
++        renderItem->receivesShadows(false);
++    } else {
++        renderItem->setExcludedFromPostEffects(false);
++        renderItem->castsShadows(true);
++        renderItem->receivesShadows(true);
++    }
++
+     renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
+     _InitRenderItemCommon(renderItem);
+ 
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp
+index c677f58bc..4c8f2bf80 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp
+@@ -38,6 +38,7 @@
+ 
+ #include <maya/MGlobal.h>
+ #include <maya/MProfiler.h>
++#include <maya/MStateManager.h>
+ #include <maya/MString.h>
+ #include <maya/MStringArray.h>
+ 
+@@ -93,6 +94,54 @@ const MString kPointSizeParameterName = "pointSize";       //!< Shader parameter
+ const MString kCurveBasisParameterName = "curveBasis";     //!< Shader parameter name
+ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of the fallback shader
+ 
++// Pre-draw callback for holdout shader: disable all color writes, keep depth writes enabled.
++// This replicates HoldOutPass.xml Pass 1: SetWriteMask=None + DepthWriteEnable=true.
++static void HoldoutPreDrawCallback(
++    MHWRender::MDrawContext& context,
++    const MHWRender::MRenderItemList& /*renderItemList*/,
++    MHWRender::MShaderInstance* /*shader*/)
++{
++    MHWRender::MStateManager* stateManager = context.getStateManager();
++    if (!stateManager) return;
++
++    MHWRender::MDepthStencilStateDesc depthDesc;
++    depthDesc.depthEnable      = true;
++    depthDesc.depthWriteEnable = true;
++    depthDesc.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
++    const MHWRender::MDepthStencilState* depthState =
++        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
++    if (depthState) stateManager->setDepthStencilState(depthState);
++
++    MHWRender::MBlendStateDesc blendDesc;
++    blendDesc.targetBlends[0].blendEnable     = false;
++    blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
++    const MHWRender::MBlendState* blendState =
++        MHWRender::MStateManager::acquireBlendState(blendDesc);
++    if (blendState) stateManager->setBlendState(blendState);
++}
++
++// Post-draw callback for holdout shader: restore default depth and blend states.
++static void HoldoutPostDrawCallback(
++    MHWRender::MDrawContext& context,
++    const MHWRender::MRenderItemList& /*renderItemList*/,
++    MHWRender::MShaderInstance* /*shader*/)
++{
++    MHWRender::MStateManager* stateManager = context.getStateManager();
++    if (!stateManager) return;
++
++    MHWRender::MDepthStencilStateDesc depthDesc;
++    depthDesc.setDefaults();
++    const MHWRender::MDepthStencilState* depthState =
++        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
++    if (depthState) stateManager->setDepthStencilState(depthState);
++
++    MHWRender::MBlendStateDesc blendDesc;
++    blendDesc.setDefaults();
++    const MHWRender::MBlendState* blendState =
++        MHWRender::MStateManager::acquireBlendState(blendDesc);
++    if (blendState) stateManager->setBlendState(blendState);
++}
++
+ //! Returns a boolean of whether or not we want the standardSurface shader fragment graph fallbacks
+ bool WantStandardSurfaceFallback()
+ {
+@@ -228,6 +277,17 @@ public:
+             _3dCPVFatPointShader->setParameter(kPointSizeParameterName, size);
+         }
+ 
++        // Holdout shader: depth-only pass via pre/post draw callbacks.
++        // Initialized once here on the main thread to avoid threading issues.
++        _holdoutShader = shaderMgr->getStockShader(
++            MHWRender::MShaderManager::k3dSolidShader,
++            HoldoutPreDrawCallback,
++            HoldoutPostDrawCallback);
++        if (TF_VERIFY(_holdoutShader)) {
++            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
++            _holdoutShader->setParameter(kSolidColorParameterName, color);
++        }
++
+         for (size_t i = 0; i < FallbackShaderTypeCount; i++) {
+             MHWRender::MShaderInstance* shader
+                 = shaderMgr->getFragmentShader(_cpvFallbackShaderNames[i], kStructOutputName, true);
+@@ -320,6 +380,8 @@ public:
+      */
+     MHWRender::MShaderInstance* Get3dCPVFatPointShader() const { return _3dCPVFatPointShader; }
+ 
++    MHWRender::MShaderInstance* GetHoldoutShader() const { return _holdoutShader; }
++
+     /*! \brief  Returns a 3d solid shader with the specified color.
+      */
+     MHWRender::MShaderInstance* Get3dSolidShader(const MColor& color)
+@@ -537,6 +599,7 @@ public:
+             _3dDefaultMaterialShader = nullptr;
+             _3dCPVSolidShader = nullptr;
+             _3dCPVFatPointShader = nullptr;
++            _holdoutShader = nullptr;
+         }
+         _isInitialized = false;
+     }
+@@ -566,6 +629,7 @@ private:
+ 
+     MHWRender::MShaderInstance* _3dCPVSolidShader { nullptr };    //!< 3d CPV solid-color shader
+     MHWRender::MShaderInstance* _3dCPVFatPointShader { nullptr }; //!< 3d CPV fat point shader
++    MHWRender::MShaderInstance* _holdoutShader { nullptr };       //!< Holdout depth-only shader
+ 
+     HdVP2ShaderCache _userCache; //!< A thread-safe cache of user generated shaders.
+ };
+@@ -1189,6 +1253,11 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColo
+     return sShaderCache.Get3dFatPointShader(color);
+ }
+ 
++MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
++{
++    return sShaderCache.GetHoldoutShader();
++}
++
+ /*! \brief  Returns a sampler state as specified by the description.
+  */
+ const MHWRender::MSamplerState*
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.h b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.h
+index c275a97d8..be5999da3 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.h
++++ b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.h
+@@ -148,6 +148,8 @@ public:
+     MHWRender::MShaderInstance*
+     GetBasisCurvesCPVShader(const TfToken& curveType, const TfToken& curveBasis) const;
+ 
++    MHWRender::MShaderInstance* GetHoldoutShader() const;
++
+     MHWRender::MShaderInstance* GetShaderFromCache(const TfToken& id);
+     bool AddShaderToCache(const TfToken& id, const MHWRender::MShaderInstance& shader);
+ #ifdef WANT_MATERIALX_BUILD

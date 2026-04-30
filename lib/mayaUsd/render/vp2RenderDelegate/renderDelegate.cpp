@@ -278,7 +278,9 @@ public:
         }
 
         // Holdout shader: depth-only pass via pre/post draw callbacks.
-        // Initialized once here on the main thread to avoid threading issues.
+        // Initialized once here on the main thread (inside Initialize()) to
+        // avoid the race condition that existed when this was lazily created
+        // from GetHoldoutShader() during parallel Hydra sync.
         _holdoutShader = shaderMgr->getStockShader(
             MHWRender::MShaderManager::k3dSolidShader,
             HoldoutPreDrawCallback,
@@ -599,7 +601,13 @@ public:
             _3dDefaultMaterialShader = nullptr;
             _3dCPVSolidShader = nullptr;
             _3dCPVFatPointShader = nullptr;
-            _holdoutShader = nullptr;
+            if (_holdoutShader) {
+                MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
+                const MHWRender::MShaderManager* shaderMgr =
+                    renderer ? renderer->getShaderManager() : nullptr;
+                if (shaderMgr) shaderMgr->releaseShader(_holdoutShader);
+                _holdoutShader = nullptr;
+            }
         }
         _isInitialized = false;
     }
