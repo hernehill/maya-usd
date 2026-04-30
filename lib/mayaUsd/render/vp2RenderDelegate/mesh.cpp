@@ -1840,6 +1840,9 @@ void HdVP2Mesh::_UpdateDrawItem(
                 if (!alreadyHoldoutShader) {
                     MHWRender::MShaderInstance* clone = holdoutShader->clone();
                     if (!clone) clone = holdoutShader; // fallback to shared if clone fails
+                    if (clone != holdoutShader && clone->preDrawCallback() == nullptr) {
+                        MGlobal::displayWarning("HoldoutShader: clone() did NOT preserve pre-draw callback!");
+                    }
                     if (clone != holdoutShader) {
                         _holdoutShaderClones.push_back(clone);
                     }
