@@ -318,7 +318,11 @@ public:
             HoldoutPreDrawCallback,
             HoldoutPostDrawCallback);
         if (TF_VERIFY(_holdoutShader)) {
-            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            // Alpha must be 1.0 so VP2 classifies this as opaque and keeps it in
+            // the opaque draw list. The pre-draw callback sets targetWriteMask to
+            // kAlphaChannel so the shader's RGB and alpha never actually reach the
+            // framebuffer — only what the callback writes (alpha=0) does.
+            const float color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
             _holdoutShader->setParameter(kSolidColorParameterName, color);
         }
 
