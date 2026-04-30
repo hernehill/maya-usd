@@ -414,6 +414,8 @@ public:
      */
     MHWRender::MShaderInstance* Get3dCPVFatPointShader() const { return _3dCPVFatPointShader; }
 
+    /*! \brief  Returns a holdout shader instance.
+     */
     MHWRender::MShaderInstance* GetHoldoutShader() const { return _holdoutShader; }
 
     /*! \brief  Returns a 3d solid shader with the specified color.
