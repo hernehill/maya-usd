@@ -918,9 +918,10 @@ void HdVP2Mesh::Sync(
                 renderItemData.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
             };
             _ForEachRenderItem(_reprs, markMaterialDirty);
-            // Release holdout shader clones when toggling off—they will be re-created
-            // if holdout is turned on again.
+
             if (!_isHoldout) {
+                // Release holdout shader clones when toggling off—they will be re-created
+                // if holdout is turned on again.
                 MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
                 const MHWRender::MShaderManager* shaderMgr
                     = renderer ? renderer->getShaderManager() : nullptr;
@@ -929,6 +930,19 @@ void HdVP2Mesh::Sync(
                         shaderMgr->releaseShader(clone);
                 }
                 _holdoutShaderClones.clear();
+
+            } else {
+                // Force geometry re-submission when transitioning into holdout so that
+                // setGeometryForRenderItem() is called in the commit lambda. This is
+                // necessary because the pre/post-draw callbacks on the holdout shader
+                // clone are only activated by VP2 when geometry is (re-)submitted.
+                // Without this, a mesh that has no other dirty bits (no DirtyPoints,
+                // DirtyPrimvar, etc.) will skip setGeometryForRenderItem() and the
+                // callbacks will never fire — causing depth write to be skipped.
+                RenderItemFunc markGeometryDirty = [](HdVP2DrawItem::RenderItemData& renderItemData) {
+                    renderItemData.SetDirtyBits(HdChangeTracker::DirtyPoints);
+                };
+                _ForEachRenderItem(_reprs, markGeometryDirty);
             }
         }
     }
