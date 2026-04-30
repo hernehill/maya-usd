@@ -112,7 +112,7 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of 
 //   No blending needed; we simply write src.a = 0 to dst.a.
 static void HoldoutPreDrawCallback(
     MHWRender::MDrawContext& context,
-    const MHWRender::MRenderItemList& renderItems,
+    const MHWRender::MRenderItemList& /*renderItemList*/,
     MHWRender::MShaderInstance* /*shader*/)
 {
     MHWRender::MStateManager* stateManager = context.getStateManager();

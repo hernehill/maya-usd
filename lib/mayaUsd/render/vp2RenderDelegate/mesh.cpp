@@ -2352,10 +2352,6 @@ void HdVP2Mesh::_UpdateDrawItem(
 
             ProxyRenderDelegate& drawScene = param->GetDrawScene();
 
-            // Holdout items must never be consolidated — the pre/post-draw callbacks
-            // that control depth/colour write masks only fire for non-consolidated draw
-            // calls. Disable consolidation BEFORE setGeometryForRenderItem so the flag
-            // is in place when VP2 decides whether to batch this item.
             if (isHoldout) {
                 // Force opaque treatment — holdout items must be in the opaque draw
                 // list so they write depth and appear in nonPostEffectList. If VP2
