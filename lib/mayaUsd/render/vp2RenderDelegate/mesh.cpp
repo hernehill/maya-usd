@@ -1796,7 +1796,7 @@ void HdVP2Mesh::_UpdateDrawItem(
 
             if (_isHoldout) {
                 MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
-                if (holdoutShader && holdoutShader != drawItemData._shader) {
+                if (holdoutShader) {
                     drawItemData._shader           = holdoutShader;
                     drawItemData._shaderIsFallback = false;
                     stateToCommit._shader          = holdoutShader;
