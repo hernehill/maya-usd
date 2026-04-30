@@ -118,6 +118,14 @@ static void HoldoutPreDrawCallback(
     MHWRender::MStateManager* stateManager = context.getStateManager();
     if (!stateManager) return;
 
+    // Disable backface culling so holdout works regardless of mesh winding order.
+    MHWRender::MRasterizerStateDesc rastDesc;
+    rastDesc.setDefaults();
+    rastDesc.cullMode = MHWRender::MRasterizerState::kCullNone;
+    const MHWRender::MRasterizerState* rastState =
+        MHWRender::MStateManager::acquireRasterizerState(rastDesc);
+    if (rastState) stateManager->setRasterizerState(rastState);
+
     // Write depth so the holdout occludes other 3D geometry drawn later.
     MHWRender::MDepthStencilStateDesc depthDesc;
     depthDesc.depthEnable      = true;
@@ -158,6 +166,12 @@ static void HoldoutPostDrawCallback(
     const MHWRender::MBlendState* blendState =
         MHWRender::MStateManager::acquireBlendState(blendDesc);
     if (blendState) stateManager->setBlendState(blendState);
+
+    MHWRender::MRasterizerStateDesc rastDesc;
+    rastDesc.setDefaults();
+    const MHWRender::MRasterizerState* rastState =
+        MHWRender::MStateManager::acquireRasterizerState(rastDesc);
+    if (rastState) stateManager->setRasterizerState(rastState);
 }
 
 //! Returns a boolean of whether or not we want the standardSurface shader fragment graph fallbacks
