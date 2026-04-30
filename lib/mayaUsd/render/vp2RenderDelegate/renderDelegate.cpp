@@ -94,26 +94,22 @@ const MString kPointSizeParameterName = "pointSize";       //!< Shader parameter
 const MString kCurveBasisParameterName = "curveBasis";     //!< Shader parameter name
 const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of the fallback shader
 
-// Holdout rendering replicates Maya's HoldOutPass.xml two-pass approach:
+// Pre-draw callback for holdout shader.
 //
-// Pass 1 (pre-draw):  DepthWriteEnable=true,  WriteMask=None
-//   Geometry writes depth only. Occludes other 3D objects.
+// Our render items live inside MayaShadedBeauty's opaque list, which runs
+// AFTER HoldOutPasses has already completed. We cannot inject into the
+// holdOutList (that requires native Maya DAG objects with holdOut=true).
 //
-// Pass 2 (the actual shader draw, state set in pre-draw via the render item's
-//   own draw call): DepthWriteEnable=false, blend Zero/SourceColor for RGB.
-//   With shader output (0,0,0,0): dst.rgb = Zero*src + SourceColor*dst = 0.
-//   This zeroes the colour buffer over the holdout region so the image plane
-//   composited underneath shows through.
+// What we can do from inside the opaque pass:
+//   1. Write depth so our holdout geometry occludes later-drawn 3D objects.
+//   2. Write alpha=0 to the alpha channel of the colour buffer. The final
+//      compositor (mayaNonPECompositeScript / maya_CompositeWithAlphaMask)
+//      uses the alpha channel to blend the image plane. alpha=0 means
+//      "fully transparent" -> image plane shows through.
+//   3. Do NOT write RGB — leave it as-is so we don't paint anything.
 //
-// Because VP2's pre/post-draw callbacks bracket a single draw of the render
-// item, we implement both passes inside the pre-draw callback using the
-// shader's pass count mechanism -- or we accept that our single callback
-// approach can only approximate one of the two passes at a time.
-//
-// Practical approach: the pre-draw callback sets up Pass 2 state (the
-// colour-zeroing blend). VP2's own depth pre-pass takes care of writing depth
-// for opaque MaterialSceneItems before the shading pass, so Pass 1 is
-// handled automatically. We just need Pass 2 to zero the colour buffer.
+// Blend equation with shader output (0,0,0,0) and WriteMask=AlphaOnly:
+//   No blending needed; we simply write src.a = 0 to dst.a.
 static void HoldoutPreDrawCallback(
     MHWRender::MDrawContext& context,
     const MHWRender::MRenderItemList& /*renderItemList*/,
@@ -122,35 +118,27 @@ static void HoldoutPreDrawCallback(
     MHWRender::MStateManager* stateManager = context.getStateManager();
     if (!stateManager) return;
 
-    // Depth: test (don't draw behind other opaque geometry) but don't
-    // re-write depth -- Pass 1 depth was already written by VP2's depth
-    // pre-pass for MaterialSceneItems.
+    // Write depth so the holdout occludes other 3D geometry drawn later.
     MHWRender::MDepthStencilStateDesc depthDesc;
     depthDesc.depthEnable      = true;
-    depthDesc.depthWriteEnable = true;   // write depth so we occlude
+    depthDesc.depthWriteEnable = true;
     depthDesc.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
     const MHWRender::MDepthStencilState* depthState =
         MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
     if (depthState) stateManager->setDepthStencilState(depthState);
 
-    // Pass 2 blend: Zero/SourceColor for RGB so shader output (0,0,0,0)
-    // zeroes dst.rgb, revealing the image plane composited underneath.
-    // Alpha: One/InvSourceAlpha preserves existing dst.a.
+    // Write alpha=0 only. The compositor reads alpha to determine where
+    // the image plane should show through. alpha=0 -> image plane visible.
+    // Blending off; direct write of src.a (=0 from our shader) to dst.a.
     MHWRender::MBlendStateDesc blendDesc;
-    blendDesc.targetBlends[0].blendEnable           = true;
-    blendDesc.targetBlends[0].sourceBlend           = MHWRender::MBlendState::kZero;
-    blendDesc.targetBlends[0].destinationBlend      = MHWRender::MBlendState::kSourceColor;
-    blendDesc.targetBlends[0].blendOperation        = MHWRender::MBlendState::kAdd;
-    blendDesc.targetBlends[0].alphaSourceBlend      = MHWRender::MBlendState::kOne;
-    blendDesc.targetBlends[0].alphaDestinationBlend = MHWRender::MBlendState::kInvSourceAlpha;
-    blendDesc.targetBlends[0].alphaBlendOperation   = MHWRender::MBlendState::kAdd;
-    blendDesc.targetBlends[0].targetWriteMask       = MHWRender::MBlendState::kRGBChannels;
+    blendDesc.targetBlends[0].blendEnable     = false;
+    blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kAlphaChannel;
     const MHWRender::MBlendState* blendState =
         MHWRender::MStateManager::acquireBlendState(blendDesc);
     if (blendState) stateManager->setBlendState(blendState);
 }
 
-// Post-draw: restore default depth and blend states.
+// Post-draw callback: restore default depth and blend states.
 static void HoldoutPostDrawCallback(
     MHWRender::MDrawContext& context,
     const MHWRender::MRenderItemList& /*renderItemList*/,
