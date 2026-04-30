@@ -1792,17 +1792,23 @@ void HdVP2Mesh::_UpdateDrawItem(
     if (desc.geomStyle == HdMeshGeomStyleHull
         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
+
+        // Holdout always overrides the shader regardless of dirty bits,
+        // because the material's async callback can win the race and assign
+        // the material shader after the holdout shader was set.
+        if (_isHoldout) {
+            MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
+            if (holdoutShader) {
+                drawItemData._shader           = holdoutShader;
+                drawItemData._shaderIsFallback = false;
+                stateToCommit._shader          = holdoutShader;
+                stateToCommit._isTransparent   = false;
+            }
+        }
+
         if (dirtyMaterialId) {
 
-            if (_isHoldout) {
-                MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
-                if (holdoutShader) {
-                    drawItemData._shader           = holdoutShader;
-                    drawItemData._shaderIsFallback = false;
-                    stateToCommit._shader          = holdoutShader;
-                    stateToCommit._isTransparent   = false;
-                }
-            } else {
+            if (!_isHoldout) {
                 SdfPath materialId = GetMaterialId();
                 if (drawItemData._geomSubset.id != SdfPath::EmptyPath()) {
                     materialId = drawItemData._geomSubset.materialId;
