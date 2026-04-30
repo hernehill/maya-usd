@@ -931,18 +931,6 @@ void HdVP2Mesh::Sync(
                 }
                 _holdoutShaderClones.clear();
 
-            } else {
-                // Force geometry re-submission when transitioning into holdout so that
-                // setGeometryForRenderItem() is called in the commit lambda. This is
-                // necessary because the pre/post-draw callbacks on the holdout shader
-                // clone are only activated by VP2 when geometry is (re-)submitted.
-                // Without this, a mesh that has no other dirty bits (no DirtyPoints,
-                // DirtyPrimvar, etc.) will skip setGeometryForRenderItem() and the
-                // callbacks will never fire — causing depth write to be skipped.
-                RenderItemFunc markGeometryDirty = [](HdVP2DrawItem::RenderItemData& renderItemData) {
-                    renderItemData.SetDirtyBits(HdChangeTracker::DirtyPoints);
-                };
-                _ForEachRenderItem(_reprs, markGeometryDirty);
             }
         }
     }
