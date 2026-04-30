@@ -115,6 +115,8 @@ static void HoldoutPreDrawCallback(
     const MHWRender::MRenderItemList& /*renderItemList*/,
     MHWRender::MShaderInstance* /*shader*/)
 {
+    MGlobal::displayWarning("HoldoutPreDrawCallback fired!");
+
     MHWRender::MStateManager* stateManager = context.getStateManager();
     if (!stateManager) return;
 

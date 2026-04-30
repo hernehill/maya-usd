@@ -2320,9 +2320,7 @@ void HdVP2Mesh::_UpdateDrawItem(
     if (_isHoldout) {
         _delegate->GetVP2ResourceRegistry().EnqueueCommit([&renderItemData]() {
             MHWRender::MRenderItem* ri = renderItemData._renderItem;
-            if (ri) {
-                MayaUsdRPrim::_SetWantConsolidation(*ri, false);
-            }
+            if (ri) MayaUsdRPrim::_SetWantConsolidation(*ri, false);
         });
     }
 
@@ -2371,6 +2369,7 @@ void HdVP2Mesh::_UpdateDrawItem(
             // calls. Disable consolidation BEFORE setGeometryForRenderItem so the flag
             // is in place when VP2 decides whether to batch this item.
             if (isHoldout) {
+                MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
                 // Force opaque treatment — holdout items must be in the opaque draw
                 // list so they write depth and appear in nonPostEffectList. If VP2
                 // ever classifies them as transparent their pre-draw callback won't
@@ -2447,14 +2446,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                         "Could not create OGS geometry for [%s], maybe it has no geometry?",
                         renderItem->name().asChar());
                 }
-            }
-
-
-            // For holdout: disable consolidation AFTER geometry submission,
-            // since setGeometryForRenderItem triggers a consolidation re-evaluation
-            // that may override an earlier setWantConsolidation(false) call.
-            if (isHoldout) {
-                MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
             }
 
 
