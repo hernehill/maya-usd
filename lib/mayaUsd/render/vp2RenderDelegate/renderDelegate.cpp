@@ -112,7 +112,7 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of 
 //   No blending needed; we simply write src.a = 0 to dst.a.
 static void HoldoutPreDrawCallback(
     MHWRender::MDrawContext& context,
-    const MHWRender::MRenderItemList& /*renderItemList*/,
+    const MHWRender::MRenderItemList& renderItems,
     MHWRender::MShaderInstance* /*shader*/)
 {
     MHWRender::MStateManager* stateManager = context.getStateManager();
@@ -130,7 +130,7 @@ static void HoldoutPreDrawCallback(
     MHWRender::MDepthStencilStateDesc depthDesc;
     depthDesc.depthEnable      = true;
     depthDesc.depthWriteEnable = true;
-    depthDesc.depthFunc        = MHWRender::MStateManager::kCompareAlways;
+    depthDesc.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
     const MHWRender::MDepthStencilState* depthState =
         MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
     if (depthState) stateManager->setDepthStencilState(depthState);

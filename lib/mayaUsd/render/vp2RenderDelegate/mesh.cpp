@@ -2851,7 +2851,7 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
     renderItem->setDrawMode(drawMode);
 
     if (_isHoldout) {
-        renderItem->setExcludedFromPostEffects(true);  // keeps item in nonPostEffectList
+        renderItem->setExcludedFromPostEffects(false);
         renderItem->castsShadows(false);
         renderItem->receivesShadows(false);
         // Draw last so alpha=0 isn't overwritten by subsequent opaque geometry.
