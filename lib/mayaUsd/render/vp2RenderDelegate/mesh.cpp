@@ -2322,9 +2322,6 @@ void HdVP2Mesh::_UpdateDrawItem(
             MHWRender::MRenderItem* ri = renderItemData._renderItem;
             if (ri) {
                 MayaUsdRPrim::_SetWantConsolidation(*ri, false);
-
-                // Temporary debug: verify the call is reaching here
-                MGlobal::displayWarning(MString("Holdout: setWantConsolidation(false) called on ") + ri->name());
             }
         });
     }
@@ -2374,7 +2371,6 @@ void HdVP2Mesh::_UpdateDrawItem(
             // calls. Disable consolidation BEFORE setGeometryForRenderItem so the flag
             // is in place when VP2 decides whether to batch this item.
             if (isHoldout) {
-                MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
                 // Force opaque treatment — holdout items must be in the opaque draw
                 // list so they write depth and appear in nonPostEffectList. If VP2
                 // ever classifies them as transparent their pre-draw callback won't
@@ -2383,11 +2379,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                 // Draw after all other opaque items so the alpha=0 we write to the
                 // frame buffer isn't overwritten by geometry drawn afterwards.
                 renderItem->setDrawLast(true);
-
-                // Temporary debug
-                MGlobal::displayWarning(
-                    MString("Holdout commit lambda running, geometryDirty=") +
-                    (stateToCommit._geometryDirty ? "true" : "false"));
             }
 
             // TODO: this is now including all buffers for the requirements of all
@@ -2457,6 +2448,15 @@ void HdVP2Mesh::_UpdateDrawItem(
                         renderItem->name().asChar());
                 }
             }
+
+
+            // For holdout: disable consolidation AFTER geometry submission,
+            // since setGeometryForRenderItem triggers a consolidation re-evaluation
+            // that may override an earlier setWantConsolidation(false) call.
+            if (isHoldout) {
+                MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
+            }
+
 
             // Important, update instance transforms after setting geometry on render items!
             auto& oldInstanceCount = stateToCommit._renderItemData._instanceCount;
