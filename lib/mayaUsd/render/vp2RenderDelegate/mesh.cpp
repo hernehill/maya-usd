@@ -2312,16 +2312,13 @@ void HdVP2Mesh::_UpdateDrawItem(
         indexBuffer = const_cast<MHWRender::MIndexBuffer*>(sharedBBoxGeom.GetIndexBuffer());
     }
 
-    // Holdout items must never be consolidated — the pre/post-draw callbacks that control
-    // depth/colour write masks only fire for non-consolidated draw calls. Enforce this
-    // unconditionally every update, outside the stateToCommit.Empty() guard, so that
-    // VP2 cannot silently re-consolidate them on steady-state frames where the commit
-    // lambda would otherwise be skipped entirely.
+    // Holdout items must never be consolidated and must always re-apply their render
+    // state flags. Force stateToCommit to be non-empty so the main commit lambda always
+    // runs for holdout items — this ensures setWantConsolidation, setTreatAsTransparent,
+    // setDrawLast, and setGeometryForRenderItem all happen atomically in the single commit
+    // below.
     if (_isHoldout) {
-        _delegate->GetVP2ResourceRegistry().EnqueueCommit([&renderItemData]() {
-            MHWRender::MRenderItem* ri = renderItemData._renderItem;
-            if (ri) MayaUsdRPrim::_SetWantConsolidation(*ri, false);
-        });
+        stateToCommit._geometryDirty = true;
     }
 
     // We can get an empty stateToCommit when viewport draw modes change. In this case every
@@ -2369,7 +2366,6 @@ void HdVP2Mesh::_UpdateDrawItem(
             // calls. Disable consolidation BEFORE setGeometryForRenderItem so the flag
             // is in place when VP2 decides whether to batch this item.
             if (isHoldout) {
-                MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
                 // Force opaque treatment — holdout items must be in the opaque draw
                 // list so they write depth and appear in nonPostEffectList. If VP2
                 // ever classifies them as transparent their pre-draw callback won't
@@ -2446,6 +2442,15 @@ void HdVP2Mesh::_UpdateDrawItem(
                         "Could not create OGS geometry for [%s], maybe it has no geometry?",
                         renderItem->name().asChar());
                 }
+            }
+
+
+            // For holdout items, disable consolidation AFTER geometry submission.
+            // setGeometryForRenderItem triggers VP2's consolidation re-evaluation,
+            // so setWantConsolidation(false) must come after it to be guaranteed
+            // to take effect before the next draw.
+            if (isHoldout) {
+                MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
             }
 
 

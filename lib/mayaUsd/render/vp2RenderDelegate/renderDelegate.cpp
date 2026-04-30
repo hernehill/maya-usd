@@ -115,22 +115,6 @@ static void HoldoutPreDrawCallback(
     const MHWRender::MRenderItemList& /*renderItemList*/,
     MHWRender::MShaderInstance* /*shader*/)
 {
-
-    // Temporary debug: check how many items are in this draw call
-    // and what pass we're in
-    const MHWRender::MPassContext& passContext = context.getPassContext();
-    const MStringArray& passSemantics = passContext.passSemantics();
-    MString semanticStr;
-    for (unsigned int i = 0; i < passSemantics.length(); i++) {
-        semanticStr += passSemantics[i];
-        semanticStr += " ";
-    }
-    MGlobal::displayWarning(
-        MString("HoldoutPreDrawCallback: passId=") + passContext.passIdentifier()
-        + " semantics=[" + semanticStr + "]");
-
-
-
     MHWRender::MStateManager* stateManager = context.getStateManager();
     if (!stateManager) return;
 
