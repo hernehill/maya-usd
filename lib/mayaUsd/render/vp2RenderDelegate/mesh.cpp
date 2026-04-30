@@ -2275,6 +2275,18 @@ void HdVP2Mesh::_UpdateDrawItem(
         indexBuffer = const_cast<MHWRender::MIndexBuffer*>(sharedBBoxGeom.GetIndexBuffer());
     }
 
+    // Holdout items must never be consolidated — the pre/post-draw callbacks that control
+    // depth/colour write masks only fire for non-consolidated draw calls. Enforce this
+    // unconditionally every update, outside the stateToCommit.Empty() guard, so that
+    // VP2 cannot silently re-consolidate them on steady-state frames where the commit
+    // lambda would otherwise be skipped entirely.
+    if (_isHoldout) {
+        _delegate->GetVP2ResourceRegistry().EnqueueCommit([&renderItemData]() {
+            MHWRender::MRenderItem* ri = renderItemData._renderItem;
+            if (ri) MayaUsdRPrim::_SetWantConsolidation(*ri, false);
+        });
+    }
+
     // We can get an empty stateToCommit when viewport draw modes change. In this case every
     // rprim is marked dirty to give any stale render items a chance to update. If there are
     // no stale render items then stateToCommit can be empty!
@@ -2304,15 +2316,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                 bool success = renderItem->setShader(stateToCommit._shader);
                 TF_VERIFY(success);
                 renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
-
-                // Holdout shader uses pre/post-draw callbacks to control the
-                // depth/color write masks. These callbacks only fire for
-                // non-consolidated draw calls. Disable consolidation on holdout
-                // items to guarantee the callbacks execute; restore it when
-                // switching back to a normal shader.
-                MayaUsdRPrim::_SetWantConsolidation(
-                    *renderItem,
-                    stateToCommit._shader->preDrawCallback() == nullptr);
             }
 
             // If the enable state is changed, then update it.
