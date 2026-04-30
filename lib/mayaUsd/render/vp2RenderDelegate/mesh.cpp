@@ -2312,15 +2312,6 @@ void HdVP2Mesh::_UpdateDrawItem(
         indexBuffer = const_cast<MHWRender::MIndexBuffer*>(sharedBBoxGeom.GetIndexBuffer());
     }
 
-    // Holdout items must never be consolidated and must always re-apply their render
-    // state flags. Force stateToCommit to be non-empty so the main commit lambda always
-    // runs for holdout items — this ensures setWantConsolidation, setTreatAsTransparent,
-    // setDrawLast, and setGeometryForRenderItem all happen atomically in the single commit
-    // below.
-    if (_isHoldout) {
-        stateToCommit._geometryDirty = true;
-    }
-
     // We can get an empty stateToCommit when viewport draw modes change. In this case every
     // rprim is marked dirty to give any stale render items a chance to update. If there are
     // no stale render items then stateToCommit can be empty!

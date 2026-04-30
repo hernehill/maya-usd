@@ -118,6 +118,19 @@ static void HoldoutPreDrawCallback(
     MHWRender::MStateManager* stateManager = context.getStateManager();
     if (!stateManager) return;
 
+
+    // Temporary debug: check depth state BEFORE we set it
+    const MHWRender::MDepthStencilState* currentDepth = stateManager->getDepthStencilState();
+    if (currentDepth) {
+        const MHWRender::MDepthStencilStateDesc& desc = currentDepth->desc();
+        MGlobal::displayWarning(
+            MString("HoldoutPre: depthEnable=") + desc.depthEnable
+            + " depthWrite=" + desc.depthWriteEnable);
+    } else {
+        MGlobal::displayWarning("HoldoutPre: currentDepth state is NULL");
+    }
+
+
     // Disable backface culling so holdout works regardless of mesh winding order.
     MHWRender::MRasterizerStateDesc rastDesc;
     rastDesc.setDefaults();
