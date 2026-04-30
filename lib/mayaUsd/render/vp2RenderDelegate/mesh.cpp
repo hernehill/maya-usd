@@ -404,6 +404,21 @@ HdVP2Mesh::HdVP2Mesh(HdVP2RenderDelegate* delegate, const SdfPath& id, const Sdf
 #endif
 }
 
+HdVP2Mesh::~HdVP2Mesh()
+{
+    // Release per-item holdout shader clones.
+    if (!_holdoutShaderClones.empty()) {
+        MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
+        const MHWRender::MShaderManager* shaderMgr
+            = renderer ? renderer->getShaderManager() : nullptr;
+        if (shaderMgr) {
+            for (auto* clone : _holdoutShaderClones)
+                shaderMgr->releaseShader(clone);
+        }
+        _holdoutShaderClones.clear();
+    }
+}
+
 void HdVP2Mesh::_PrepareSharedVertexBuffers(
     HdSceneDelegate*   delegate,
     const HdDirtyBits& rprimDirtyBits,
@@ -903,6 +918,18 @@ void HdVP2Mesh::Sync(
                 renderItemData.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
             };
             _ForEachRenderItem(_reprs, markMaterialDirty);
+            // Release holdout shader clones when toggling off—they will be re-created
+            // if holdout is turned on again.
+            if (!_isHoldout) {
+                MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
+                const MHWRender::MShaderManager* shaderMgr
+                    = renderer ? renderer->getShaderManager() : nullptr;
+                if (shaderMgr) {
+                    for (auto* clone : _holdoutShaderClones)
+                        shaderMgr->releaseShader(clone);
+                }
+                _holdoutShaderClones.clear();
+            }
         }
     }
 
@@ -1801,9 +1828,21 @@ void HdVP2Mesh::_UpdateDrawItem(
             MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
             if (holdoutShader) {
                 drawItemData._shaderIsFallback = false;
-                if (drawItemData._shader != holdoutShader) {
-                    drawItemData._shader         = holdoutShader;
-                    stateToCommit._shader        = holdoutShader;
+                // Each holdout render item needs its own cloned MShaderInstance so VP2
+                // fires pre/post-draw callbacks independently per item. If items share one
+                // shader instance VP2 fires callbacks only once for the group, so only the
+                // first item would write alpha=0. Create the clone once (identified by the
+                // presence of a preDrawCallback on the stored shader).
+                bool alreadyHoldoutShader = drawItemData._shader
+                    && drawItemData._shader->preDrawCallback() != nullptr;
+                if (!alreadyHoldoutShader) {
+                    MHWRender::MShaderInstance* clone = holdoutShader->clone();
+                    if (!clone) clone = holdoutShader; // fallback to shared if clone fails
+                    if (clone != holdoutShader) {
+                        _holdoutShaderClones.push_back(clone);
+                    }
+                    drawItemData._shader         = clone;
+                    stateToCommit._shader        = clone;
                     stateToCommit._isTransparent = false;
                 }
             }
@@ -2291,12 +2330,14 @@ void HdVP2Mesh::_UpdateDrawItem(
     // rprim is marked dirty to give any stale render items a chance to update. If there are
     // no stale render items then stateToCommit can be empty!
     if (!stateToCommit.Empty()) {
+        const bool isHoldout = _isHoldout;
         _delegate->GetVP2ResourceRegistry().EnqueueCommit([stateToCommit,
                                                            param,
                                                            primvarInfo,
                                                            primvars,
                                                            indexBuffer,
                                                            isBBoxItem,
+                                                           isHoldout,
                                                            &sharedBBoxGeom]() {
             // This code executes serially, once per mesh updated. Keep
             // performance in mind while modifying this code.
@@ -2324,6 +2365,14 @@ void HdVP2Mesh::_UpdateDrawItem(
             }
 
             ProxyRenderDelegate& drawScene = param->GetDrawScene();
+
+            // Holdout items must never be consolidated — the pre/post-draw callbacks
+            // that control depth/colour write masks only fire for non-consolidated draw
+            // calls. Disable consolidation BEFORE setGeometryForRenderItem so the flag
+            // is in place when VP2 decides whether to batch this item.
+            if (isHoldout) {
+                MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
+            }
 
             // TODO: this is now including all buffers for the requirements of all
             // the render items on this rprim. We could filter it down based on the
@@ -2810,6 +2859,13 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
 
     renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
     _InitRenderItemCommon(renderItem);
+
+    // _InitRenderItemCommon sets wantConsolidation=true for all items. Override it
+    // for holdout items: the pre/post-draw callbacks that manage depth/colour write
+    // masks only fire for non-consolidated draw calls.
+    if (_isHoldout) {
+        MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
+    }
 
 #ifdef MAYA_NEW_POINT_SNAPPING_SUPPORT
     MSelectionMask selectionMask(MSelectionMask::kSelectMeshes);
