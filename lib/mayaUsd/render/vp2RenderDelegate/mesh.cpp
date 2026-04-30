@@ -2362,9 +2362,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                 // ever classifies them as transparent their pre-draw callback won't
                 // fire and neither depth nor alpha=0 will be written.
                 renderItem->setTreatAsTransparent(false);
-                // Draw after all other opaque items so the alpha=0 we write to the
-                // frame buffer isn't overwritten by geometry drawn afterwards.
-                renderItem->setDrawLast(true);
             }
 
             // TODO: this is now including all buffers for the requirements of all
@@ -2851,11 +2848,9 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
     renderItem->setDrawMode(drawMode);
 
     if (_isHoldout) {
-        renderItem->setExcludedFromPostEffects(false);
+        renderItem->setExcludedFromPostEffects(true);
         renderItem->castsShadows(false);
         renderItem->receivesShadows(false);
-        // Draw last so alpha=0 isn't overwritten by subsequent opaque geometry.
-        renderItem->setDrawLast(true);
         renderItem->setShader(_delegate->GetHoldoutShader());
     } else {
         renderItem->setExcludedFromPostEffects(false);
