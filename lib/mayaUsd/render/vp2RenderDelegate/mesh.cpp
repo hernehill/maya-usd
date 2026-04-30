@@ -2383,6 +2383,11 @@ void HdVP2Mesh::_UpdateDrawItem(
                 // Draw after all other opaque items so the alpha=0 we write to the
                 // frame buffer isn't overwritten by geometry drawn afterwards.
                 renderItem->setDrawLast(true);
+
+                // Temporary debug
+                MGlobal::displayWarning(
+                    MString("Holdout commit lambda running, geometryDirty=") +
+                    (stateToCommit._geometryDirty ? "true" : "false"));
             }
 
             // TODO: this is now including all buffers for the requirements of all
