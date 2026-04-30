@@ -127,13 +127,12 @@ static void HoldoutPreDrawCallback(
     if (rastState) stateManager->setRasterizerState(rastState);
 
     // Write depth so the holdout occludes other 3D geometry drawn later.
-    // kCompareAlways writes depth unconditionally — we rely on kCullNone +
-    // drawing both faces to guarantee the correct (near) depth is written
-    // regardless of what the depth pre-pass left behind.
+    // kCompareLessEqual handles both the normal case and the kCullNone case
+    // where the depth pre-pass may have already written the same depth value.
     MHWRender::MDepthStencilStateDesc depthDesc;
     depthDesc.depthEnable      = true;
     depthDesc.depthWriteEnable = true;
-    depthDesc.depthFunc        = MHWRender::MStateManager::kCompareAlways;
+    depthDesc.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
     const MHWRender::MDepthStencilState* depthState =
         MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
     if (depthState) stateManager->setDepthStencilState(depthState);

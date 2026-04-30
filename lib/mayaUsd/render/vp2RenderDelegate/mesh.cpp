@@ -2372,6 +2372,11 @@ void HdVP2Mesh::_UpdateDrawItem(
             // is in place when VP2 decides whether to batch this item.
             if (isHoldout) {
                 MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
+                // Force opaque treatment — holdout items must be in the opaque draw
+                // list so they write depth and appear in nonPostEffectList. If VP2
+                // ever classifies them as transparent their pre-draw callback won't
+                // fire and neither depth nor alpha=0 will be written.
+                renderItem->setTreatAsTransparent(false);
             }
 
             // TODO: this is now including all buffers for the requirements of all
