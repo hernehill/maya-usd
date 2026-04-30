@@ -94,6 +94,54 @@ const MString kPointSizeParameterName = "pointSize";       //!< Shader parameter
 const MString kCurveBasisParameterName = "curveBasis";     //!< Shader parameter name
 const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of the fallback shader
 
+// Pre-draw callback for holdout shader: disable all color writes, keep depth writes enabled.
+// This replicates HoldOutPass.xml Pass 1: SetWriteMask=None + DepthWriteEnable=true.
+static void HoldoutPreDrawCallback(
+    MHWRender::MDrawContext& context,
+    const MHWRender::MRenderItemList& /*renderItemList*/,
+    MHWRender::MShaderInstance* /*shader*/)
+{
+    MHWRender::MStateManager* stateManager = context.getStateManager();
+    if (!stateManager) return;
+
+    MHWRender::MDepthStencilStateDesc depthDesc;
+    depthDesc.depthEnable      = true;
+    depthDesc.depthWriteEnable = true;
+    depthDesc.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
+    const MHWRender::MDepthStencilState* depthState =
+        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
+    if (depthState) stateManager->setDepthStencilState(depthState);
+
+    MHWRender::MBlendStateDesc blendDesc;
+    blendDesc.targetBlends[0].blendEnable     = false;
+    blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
+    const MHWRender::MBlendState* blendState =
+        MHWRender::MStateManager::acquireBlendState(blendDesc);
+    if (blendState) stateManager->setBlendState(blendState);
+}
+
+// Post-draw callback for holdout shader: restore default depth and blend states.
+static void HoldoutPostDrawCallback(
+    MHWRender::MDrawContext& context,
+    const MHWRender::MRenderItemList& /*renderItemList*/,
+    MHWRender::MShaderInstance* /*shader*/)
+{
+    MHWRender::MStateManager* stateManager = context.getStateManager();
+    if (!stateManager) return;
+
+    MHWRender::MDepthStencilStateDesc depthDesc;
+    depthDesc.setDefaults();
+    const MHWRender::MDepthStencilState* depthState =
+        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
+    if (depthState) stateManager->setDepthStencilState(depthState);
+
+    MHWRender::MBlendStateDesc blendDesc;
+    blendDesc.setDefaults();
+    const MHWRender::MBlendState* blendState =
+        MHWRender::MStateManager::acquireBlendState(blendDesc);
+    if (blendState) stateManager->setBlendState(blendState);
+}
+
 //! Returns a boolean of whether or not we want the standardSurface shader fragment graph fallbacks
 bool WantStandardSurfaceFallback()
 {
@@ -1203,59 +1251,6 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dCPVFatPointShader() const
 MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColor& color) const
 {
     return sShaderCache.Get3dFatPointShader(color);
-}
-
-// Pre-draw callback: disable all color writes, keep depth writes enabled.
-// This replicates HoldOutPass.xml Pass 1: SetWriteMask=None + DepthWriteEnable=true.
-static void HoldoutPreDrawCallback(
-    MHWRender::MDrawContext& context,
-    const MHWRender::MRenderItemList& /*renderItemList*/,
-    MHWRender::MShaderInstance* /*shader*/)
-{
-    MHWRender::MStateManager* stateManager = context.getStateManager();
-    if (!stateManager) return;
-
-    // Depth state: depth test ON, depth write ON (write depth so holdout occludes geometry behind it)
-    MHWRender::MDepthStencilStateDesc depthDesc;
-    depthDesc.depthEnable      = true;
-    depthDesc.depthWriteEnable = true;
-    depthDesc.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
-    const MHWRender::MDepthStencilState* depthState =
-        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
-    if (depthState) stateManager->setDepthStencilState(depthState);
-
-    // Blend state: color write mask = kNoChannels (no RGBA writes).
-    // Depth buffer is unaffected by blend state — depth writes still happen.
-    MHWRender::MBlendStateDesc blendDesc;
-    blendDesc.targetBlends[0].blendEnable   = false;
-    blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
-    const MHWRender::MBlendState* blendState =
-        MHWRender::MStateManager::acquireBlendState(blendDesc);
-    if (blendState) stateManager->setBlendState(blendState);
-}
-
-// Post-draw callback: restore default depth and blend states.
-static void HoldoutPostDrawCallback(
-    MHWRender::MDrawContext& context,
-    const MHWRender::MRenderItemList& /*renderItemList*/,
-    MHWRender::MShaderInstance* /*shader*/)
-{
-    MHWRender::MStateManager* stateManager = context.getStateManager();
-    if (!stateManager) return;
-
-    // Restore default depth state
-    MHWRender::MDepthStencilStateDesc depthDesc;
-    depthDesc.setDefaults();
-    const MHWRender::MDepthStencilState* depthState =
-        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
-    if (depthState) stateManager->setDepthStencilState(depthState);
-
-    // Restore default blend state (all channels writable, no blending)
-    MHWRender::MBlendStateDesc blendDesc;
-    blendDesc.setDefaults();
-    const MHWRender::MBlendState* blendState =
-        MHWRender::MStateManager::acquireBlendState(blendDesc);
-    if (blendState) stateManager->setBlendState(blendState);
 }
 
 MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
