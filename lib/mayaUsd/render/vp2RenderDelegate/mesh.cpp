@@ -1793,16 +1793,19 @@ void HdVP2Mesh::_UpdateDrawItem(
         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
 
-        // Holdout always overrides the shader regardless of dirty bits,
-        // because the material's async callback can win the race and assign
-        // the material shader after the holdout shader was set.
+        // Holdout overrides the shader. Guard drawItemData._shader unconditionally
+        // so the material/fallback paths below cannot clobber it, but only push
+        // to stateToCommit when the shader has actually changed — avoiding a
+        // redundant setShader() commit on every frame for steady-state holdouts.
         if (_isHoldout) {
             MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
             if (holdoutShader) {
-                drawItemData._shader           = holdoutShader;
                 drawItemData._shaderIsFallback = false;
-                stateToCommit._shader          = holdoutShader;
-                stateToCommit._isTransparent   = false;
+                if (drawItemData._shader != holdoutShader) {
+                    drawItemData._shader         = holdoutShader;
+                    stateToCommit._shader        = holdoutShader;
+                    stateToCommit._isTransparent = false;
+                }
             }
         }
 
@@ -2301,6 +2304,15 @@ void HdVP2Mesh::_UpdateDrawItem(
                 bool success = renderItem->setShader(stateToCommit._shader);
                 TF_VERIFY(success);
                 renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
+
+                // Holdout shader uses pre/post-draw callbacks to control the
+                // depth/color write masks. These callbacks only fire for
+                // non-consolidated draw calls. Disable consolidation on holdout
+                // items to guarantee the callbacks execute; restore it when
+                // switching back to a normal shader.
+                MayaUsdRPrim::_SetWantConsolidation(
+                    *renderItem,
+                    stateToCommit._shader->preDrawCallback() == nullptr);
             }
 
             // If the enable state is changed, then update it.
