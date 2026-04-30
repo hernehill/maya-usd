@@ -1840,9 +1840,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                 if (!alreadyHoldoutShader) {
                     MHWRender::MShaderInstance* clone = holdoutShader->clone();
                     if (!clone) clone = holdoutShader; // fallback to shared if clone fails
-                    if (clone != holdoutShader && clone->preDrawCallback() == nullptr) {
-                        MGlobal::displayWarning("HoldoutShader: clone() did NOT preserve pre-draw callback!");
-                    }
                     if (clone != holdoutShader) {
                         _holdoutShaderClones.push_back(clone);
                     }
@@ -2323,7 +2320,12 @@ void HdVP2Mesh::_UpdateDrawItem(
     if (_isHoldout) {
         _delegate->GetVP2ResourceRegistry().EnqueueCommit([&renderItemData]() {
             MHWRender::MRenderItem* ri = renderItemData._renderItem;
-            if (ri) MayaUsdRPrim::_SetWantConsolidation(*ri, false);
+            if (ri) {
+                MayaUsdRPrim::_SetWantConsolidation(*ri, false);
+
+                // Temporary debug: verify the call is reaching here
+                MGlobal::displayWarning(MString("Holdout: setWantConsolidation(false) called on ") + ri->name());
+            }
         });
     }
 
