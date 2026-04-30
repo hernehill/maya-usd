@@ -127,8 +127,7 @@ static void HoldoutPreDrawCallback(
     }
     MGlobal::displayWarning(
         MString("HoldoutPreDrawCallback: passId=") + passContext.passIdentifier()
-        + " semantics=[" + semanticStr + "]"
-        + " itemCount=" + renderItemList.length());
+        + " semantics=[" + semanticStr + "]");
 
 
 
