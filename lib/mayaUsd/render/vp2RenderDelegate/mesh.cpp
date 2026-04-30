@@ -2857,13 +2857,14 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
         renderItem->receivesShadows(false);
         // Draw last so alpha=0 isn't overwritten by subsequent opaque geometry.
         renderItem->setDrawLast(true);
+        renderItem->setShader(_delegate->GetHoldoutShader());
     } else {
         renderItem->setExcludedFromPostEffects(false);
         renderItem->castsShadows(true);
         renderItem->receivesShadows(true);
+        renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
     }
 
-    renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
     _InitRenderItemCommon(renderItem);
 
     // _InitRenderItemCommon sets wantConsolidation=true for all items. Override it
