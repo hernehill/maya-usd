@@ -229,6 +229,17 @@ public:
             _3dCPVFatPointShader->setParameter(kPointSizeParameterName, size);
         }
 
+        // Holdout shader: depth-only pass via pre/post draw callbacks.
+        // Initialized once here on the main thread to avoid threading issues.
+        _holdoutShader = shaderMgr->getStockShader(
+            MHWRender::MShaderManager::k3dSolidShader,
+            HoldoutPreDrawCallback,
+            HoldoutPostDrawCallback);
+        if (TF_VERIFY(_holdoutShader)) {
+            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            _holdoutShader->setParameter(kSolidColorParameterName, color);
+        }
+
         for (size_t i = 0; i < FallbackShaderTypeCount; i++) {
             MHWRender::MShaderInstance* shader
                 = shaderMgr->getFragmentShader(_cpvFallbackShaderNames[i], kStructOutputName, true);
@@ -320,6 +331,8 @@ public:
     /*! \brief  Returns a 3d CPV fat point shader instance.
      */
     MHWRender::MShaderInstance* Get3dCPVFatPointShader() const { return _3dCPVFatPointShader; }
+
+    MHWRender::MShaderInstance* GetHoldoutShader() const { return _holdoutShader; }
 
     /*! \brief  Returns a 3d solid shader with the specified color.
      */
@@ -538,6 +551,7 @@ public:
             _3dDefaultMaterialShader = nullptr;
             _3dCPVSolidShader = nullptr;
             _3dCPVFatPointShader = nullptr;
+            _holdoutShader = nullptr;
         }
         _isInitialized = false;
     }
@@ -567,6 +581,7 @@ private:
 
     MHWRender::MShaderInstance* _3dCPVSolidShader { nullptr };    //!< 3d CPV solid-color shader
     MHWRender::MShaderInstance* _3dCPVFatPointShader { nullptr }; //!< 3d CPV fat point shader
+    MHWRender::MShaderInstance* _holdoutShader { nullptr };       //!< Holdout depth-only shader
 
     HdVP2ShaderCache _userCache; //!< A thread-safe cache of user generated shaders.
 };
@@ -1245,33 +1260,7 @@ static void HoldoutPostDrawCallback(
 
 MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
 {
-    if (!_holdoutShader) {
-        MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
-        if (!renderer) return nullptr;
-        const MHWRender::MShaderManager* shaderMgr = renderer->getShaderManager();
-        if (!shaderMgr) return nullptr;
-
-        // Use the solid shader as the base geometry shader (any shader works —
-        // the pre-draw callback disables all color writes so output color
-        // is irrelevant). Depth is written normally by the GPU rasterizer
-        // regardless of the shader output, so this produces a perfect
-        // depth-only pass: the holdout prim occludes geometry behind it
-        // while showing the image plane through.
-        _holdoutShader.reset(
-            shaderMgr->getStockShader(
-                MHWRender::MShaderManager::k3dSolidShader,
-                HoldoutPreDrawCallback,
-                HoldoutPostDrawCallback));
-
-        if (_holdoutShader) {
-            // Color is irrelevant (color writes are disabled by the pre-draw
-            // callback), but set alpha=0 in case setTreatAsTransparent is
-            // ever toggled on during debugging.
-            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-            _holdoutShader->setParameter("solidColor", color);
-        }
-    }
-    return _holdoutShader.get();
+    return sShaderCache.GetHoldoutShader();
 }
 
 /*! \brief  Returns a sampler state as specified by the description.

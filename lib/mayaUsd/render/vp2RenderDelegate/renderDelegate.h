@@ -190,8 +190,6 @@ private:
     SdfPath _id;          //!< Render delegate ID
     HdVP2ResourceRegistry
         _resourceRegistryVP2; //!< VP2 resource registry used for enqueue and execution of commits
-
-    mutable HdVP2ShaderUniquePtr _holdoutShader;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
