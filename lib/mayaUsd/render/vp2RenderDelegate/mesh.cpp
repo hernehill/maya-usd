@@ -2354,6 +2354,14 @@ void HdVP2Mesh::_UpdateDrawItem(
 
             ProxyRenderDelegate& drawScene = param->GetDrawScene();
 
+            // if (isHoldout) {
+            //     // Force opaque treatment — holdout items must be in the opaque draw
+            //     // list so they write depth and appear in nonPostEffectList. If VP2
+            //     // ever classifies them as transparent their pre-draw callback won't
+            //     // fire and neither depth nor alpha=0 will be written.
+            //     renderItem->setTreatAsTransparent(false);
+            // }
+
             // TODO: this is now including all buffers for the requirements of all
             // the render items on this rprim. We could filter it down based on the
             // requirements of the shader.
@@ -2421,11 +2429,18 @@ void HdVP2Mesh::_UpdateDrawItem(
                         renderItem->name().asChar());
                 }
 
-                // Holdout items must have consolidation disabled even after geometry submission,
-                // because setGeometryForRenderItem() may re-enable consolidation internally.
-                if (isHoldout) {
-                    renderItem->setWantConsolidation(false);
-                }
+                // // Holdout items must have consolidation disabled even after geometry submission,
+                // // because setGeometryForRenderItem() may re-enable consolidation internally.
+                // if (isHoldout) {
+                //     renderItem->setWantConsolidation(false);
+                // }
+            }
+
+            // Holdout items must unconditionally suppress consolidation every commit,
+            // not just when geometry changes, because VP2 may re-evaluate consolidation
+            // eligibility on any frame.
+            if (isHoldout) {
+                renderItem->setWantConsolidation(false);
             }
 
             // Important, update instance transforms after setting geometry on render items!
@@ -2837,20 +2852,17 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
     renderItem->receivesShadows(true);
     renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
 
-    // Holdout items need to be out of the transparent list and exclude from shadows
+    _InitRenderItemCommon(renderItem);
+
+    // Holdout items need to be out of the transparent list and exclude from shadows.
+    // We alsp need to suppress consolidation so VP2 fires the pre/post-draw callbacks
+    // on each item independently. This must be done after _InitRenderItemCommon since
+    // it always set to true.
     if (_isHoldout) {
         renderItem->setExcludedFromPostEffects(true);
         renderItem->castsShadows(false);
         renderItem->receivesShadows(false);
         renderItem->setTreatAsTransparent(false);
-    }
-
-    _InitRenderItemCommon(renderItem);
-
-    // Holdout items need to suppress consolidation so VP2 fires the
-    // pre/post-draw callbacks on each item independently. Must be done after
-    // _InitRenderItemCommon since it always set to true.
-    if (_isHoldout) {
         _SetWantConsolidation(*renderItem, false);
     }
 
