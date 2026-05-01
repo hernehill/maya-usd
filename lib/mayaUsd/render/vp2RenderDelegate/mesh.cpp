@@ -2837,18 +2837,22 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
     renderItem->receivesShadows(true);
     renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
 
-    // Holdout render items need to suppress consolidation so VP2 fires the
-    // pre/post-draw callbacks on each item independently. Also keep them out
-    // of the transparent list and exclude from shadows.
+    // Holdout items need to be out of the transparent list and exclude from shadows
     if (_isHoldout) {
         renderItem->setExcludedFromPostEffects(true);
         renderItem->castsShadows(false);
         renderItem->receivesShadows(false);
         renderItem->setTreatAsTransparent(false);
-        _SetWantConsolidation(*renderItem, false);
     }
 
     _InitRenderItemCommon(renderItem);
+
+    // Holdout items need to suppress consolidation so VP2 fires the
+    // pre/post-draw callbacks on each item independently. Must be done after
+    // _InitRenderItemCommon since it always set to true.
+    if (_isHoldout) {
+        _SetWantConsolidation(*renderItem, false);
+    }
 
 #ifdef MAYA_NEW_POINT_SNAPPING_SUPPORT
     MSelectionMask selectionMask(MSelectionMask::kSelectMeshes);
