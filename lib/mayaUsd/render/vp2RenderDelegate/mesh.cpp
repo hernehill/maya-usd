@@ -906,29 +906,14 @@ void HdVP2Mesh::Sync(
 #endif
     }
 
-    // Detect changes to the maya:holdout primvar every sync.
-    // When it transitions, mark DirtyMaterialId so _UpdateDrawItem re-evaluates
-    // the shader assignment and picks up or releases the holdout shader clone.
+
+    // Detect changes to holdout items every sync.
+    // If it's not holdout, we release the shaders.
+    // If it is holdout (not just in transitions), we dirty materials.
     {
         const bool newHoldout = _IsHoldout(id);
         if (newHoldout != _isHoldout) {
-            // We are transitioning (true -> false or vice-versa)
             _isHoldout = newHoldout;
-
-            if (_isHoldout) {
-                *dirtyBits |= MayaUsdRPrim::DirtyDisplayMode;
-                RenderItemFunc markDirty = [](HdVP2DrawItem::RenderItemData& d) {
-                    d.SetDirtyBits(MayaUsdRPrim::DirtyDisplayMode);
-                };
-                _ForEachRenderItem(_reprs, markDirty);
-            }
-
-            // *dirtyBits |= HdChangeTracker::DirtyMaterialId;
-            // RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& d) {
-            //     d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
-            // };
-            // _ForEachRenderItem(_reprs, markMaterialDirty);
-
             if (!_isHoldout) {
                 // Release shader clones when holdout is turned off.
                 MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
@@ -940,6 +925,17 @@ void HdVP2Mesh::Sync(
                 }
                 _holdoutShaderClones.clear();
             }
+        }
+
+        // For holdout items, force a dirty bit every frame so _UpdateDrawItem
+        // always runs, ensuring setWantConsolidation(false) is enqueued every
+        // frame via the commit queue — even on frames with no scene changes.
+        if (_isHoldout) {
+            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
+            RenderItemFunc markDirty = [](HdVP2DrawItem::RenderItemData& d) {
+                d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
+            };
+            _ForEachRenderItem(_reprs, markDirty);
         }
     }
 
@@ -2538,7 +2534,7 @@ void HdVP2Mesh::_UpdateDrawItem(
     // the lambda commit was never created.
     if (_isHoldout) {
         _delegate->GetVP2ResourceRegistry().EnqueueCommit([renderItem]() {
-            // renderItem->setExcludedFromPostEffects(true);
+            renderItem->setExcludedFromPostEffects(true);
             renderItem->setTreatAsTransparent(false);
             renderItem->setWantConsolidation(false);
         });
@@ -2869,7 +2865,7 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
     // on each item independently. This must be done after _InitRenderItemCommon since
     // it always set to true.
     if (_isHoldout) {
-        // renderItem->setExcludedFromPostEffects(true);
+        renderItem->setExcludedFromPostEffects(true);
         renderItem->castsShadows(false);
         renderItem->receivesShadows(false);
         renderItem->setTreatAsTransparent(false);
