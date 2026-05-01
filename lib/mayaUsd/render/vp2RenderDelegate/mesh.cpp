@@ -912,6 +912,9 @@ void HdVP2Mesh::Sync(
         bool newHoldout = _IsHoldout(id);
         if (newHoldout != _isHoldout) {
             _isHoldout = newHoldout;
+            // Notify the render delegate so it can maintain the proxy holdout
+            // node that forces Maya's HoldoutDrawPass to run.
+            _delegate->NotifyHoldoutCountChanged(_delegate, _isHoldout ? +1 : -1);
             // Force DirtyMaterialId into the main dirty bits so _UpdateDrawItem sees it
             *dirtyBits |= HdChangeTracker::DirtyMaterialId;
             // Also mark existing render items dirty (for live changes after first sync)

@@ -933,6 +933,7 @@ const int HdVP2RenderDelegate::sProfilerCategory
 std::mutex                  HdVP2RenderDelegate::_renderDelegateMutex;
 std::atomic_int             HdVP2RenderDelegate::_renderDelegateCounter;
 HdResourceRegistrySharedPtr HdVP2RenderDelegate::_resourceRegistry;
+std::atomic_int             HdVP2RenderDelegate::_holdoutPrimCount { 0 };
 
 /*! \brief  Constructor.
  */
@@ -1534,6 +1535,67 @@ void HdVP2RenderDelegate::CleanupMaterials()
         if (auto* material = dynamic_cast<HdVP2Material*>(sprim)) {
             material->ClearPendingTasks();
         }
+    }
+}
+
+/*! \brief  Maintain a proxy Maya holdout node so HoldoutDrawPass always runs
+            when USD holdout prims are active.
+
+    Maya's HoldoutDrawPass (which pre-renders the scene including the image
+    plane into the beauty target before opaque drawing) only executes when
+    holdOutList is non-empty. holdOutList is populated by Maya DAG nodes that
+    have holdOut=true. When no such native node exists, HoldoutDrawPass is
+    skipped and our USD holdout items cannot reveal the image plane.
+
+    This function tracks how many USD holdout prims are active. On the
+    0->1 transition it creates a hidden proxy poly plane with holdOut=true
+    (zero-area, invisible, non-renderable) so the holdOutList is always
+    non-empty. On the 1->0 transition it deletes it.
+
+    Called from HdVP2Mesh::Sync on the main thread (Hydra sync is serial).
+*/
+void HdVP2RenderDelegate::NotifyHoldoutCountChanged(HdVP2RenderDelegate* delegate, int delta)
+{
+    // kHoldoutProxyName is the well-known name we give the proxy node so we
+    // can find and delete it later without keeping a persistent MObject.
+    static const char* kHoldoutProxyName = "__mayaUsdHoldoutProxy";
+
+    const int prev = _holdoutPrimCount.fetch_add(delta);
+    const int next = prev + delta;
+
+    if (prev == 0 && next > 0) {
+        // Transition 0 -> positive: create the proxy holdout node.
+        // Use a point (single-vertex mesh) with zero faces so it is truly
+        // invisible and has no cost. holdOut=true is the only thing that
+        // matters — it registers the object in Maya's internal holdOutList.
+        MString cmd;
+        cmd += "if (!`objExists \"";
+        cmd += kHoldoutProxyName;
+        cmd += "\"`) {";
+        cmd += "  string $t[] = `createNode transform -n \"";
+        cmd += kHoldoutProxyName;
+        cmd += "\" -skipSelect`;";
+        cmd += "  string $m[] = `createNode mesh -p $t[0] -skipSelect`;";
+        cmd += "  setAttr ($m[0] + \".holdOut\") 1;";
+        cmd += "  setAttr ($t[0] + \".visibility\") 0;";
+        cmd += "  setAttr ($t[0] + \".hiddenInOutliner\") 1;";
+        cmd += "}";
+        // Enqueue on VP2's commit queue so this runs on the main thread
+        // before the next draw call, not deferred to idle time.
+        _delegate->GetVP2ResourceRegistry().EnqueueCommit([cmd]() {
+            MGlobal::executeCommand(cmd, false /*displayEnabled*/);
+        });
+    } else if (prev > 0 && next == 0) {
+        // Transition positive -> 0: delete the proxy holdout node.
+        MString cmd;
+        cmd += "if (`objExists \"";
+        cmd += kHoldoutProxyName;
+        cmd += "\"`) { delete \"";
+        cmd += kHoldoutProxyName;
+        cmd += "\"; }";
+        delegate->GetVP2ResourceRegistry().EnqueueCommit([cmd]() {
+            MGlobal::executeCommand(cmd, false /*displayEnabled*/);
+        });
     }
 }
 

@@ -172,6 +172,11 @@ public:
 
     static void OnMayaExit();
 
+    //! Called when a USD holdout prim becomes active/inactive.
+    //! Maintains a scene-wide proxy Maya mesh with holdOut=true so that
+    //! Maya's HoldoutDrawPass always fires when USD holdout prims exist.
+    static void NotifyHoldoutCountChanged(HdVP2RenderDelegate* delegate, int delta);
+
 private:
     HdVP2RenderDelegate(const HdVP2RenderDelegate&) = delete;
     HdVP2RenderDelegate& operator=(const HdVP2RenderDelegate&) = delete;
@@ -183,6 +188,11 @@ private:
         _renderDelegateMutex; //!< Mutex protecting construction/destruction of render delegate
     static HdResourceRegistrySharedPtr
         _resourceRegistry; //!< Shared and unused by VP2 resource registry
+
+    //! Scene-wide count of active USD holdout prims across all render delegates.
+    //! When this transitions 0->1 a proxy Maya holdout node is created;
+    //! when it transitions 1->0 the proxy is deleted.
+    static std::atomic_int _holdoutPrimCount;
 
     std::unordered_set<HdSprim*> _materialSprims;
 
