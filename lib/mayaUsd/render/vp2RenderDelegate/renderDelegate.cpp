@@ -886,6 +886,15 @@ void HdVP2RenderDelegate::CommitResources(HdChangeTracker* tracker)
     //     3) Update any scene-level acceleration structures.
 
     _resourceRegistryVP2.Commit();
+
+    // Every frame, unconditionally suppress consolidation and transparency on all
+    // holdout render items. This runs on the main thread regardless of whether
+    // Hydra called Sync() on those prims, ensuring VP2 never re-consolidates
+    // them on frames where nothing in the scene changed (e.g. camera-only animation).
+    for (auto* item : _holdoutRenderItems) {
+        item->setWantConsolidation(false);
+        item->setTreatAsTransparent(false);
+    }
 }
 
 /*! \brief  Return a list of which Rprim types can be created by this class's.
@@ -1363,6 +1372,25 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColo
 MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
 {
     return sShaderCache.GetHoldoutShader();
+}
+
+void HdVP2RenderDelegate::RegisterHoldoutRenderItem(MHWRender::MRenderItem* item)
+{
+    if (!item)
+        return;
+    // Avoid duplicates
+    auto it = std::find(_holdoutRenderItems.begin(), _holdoutRenderItems.end(), item);
+    if (it == _holdoutRenderItems.end()) {
+        _holdoutRenderItems.push_back(item);
+    }
+}
+
+void HdVP2RenderDelegate::UnregisterHoldoutRenderItem(MHWRender::MRenderItem* item)
+{
+    auto it = std::find(_holdoutRenderItems.begin(), _holdoutRenderItems.end(), item);
+    if (it != _holdoutRenderItems.end()) {
+        _holdoutRenderItems.erase(it);
+    }
 }
 
 /*! \brief  Returns a sampler state as specified by the description.

@@ -29,6 +29,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <vector>
 
 constexpr char VP2_RENDER_DELEGATE_SEPARATOR = ';';
 
@@ -150,6 +151,11 @@ public:
 
     MHWRender::MShaderInstance* GetHoldoutShader() const;
 
+    //! Register/unregister a holdout render item for per-frame consolidation suppression.
+    //! Called from mesh Sync on main thread via CommitResources.
+    void RegisterHoldoutRenderItem(MHWRender::MRenderItem* item);
+    void UnregisterHoldoutRenderItem(MHWRender::MRenderItem* item);
+
     MHWRender::MShaderInstance* GetShaderFromCache(const TfToken& id);
     bool AddShaderToCache(const TfToken& id, const MHWRender::MShaderInstance& shader);
 #ifdef WANT_MATERIALX_BUILD
@@ -184,6 +190,9 @@ private:
         _resourceRegistry; //!< Shared and unused by VP2 resource registry
 
     std::unordered_set<HdSprim*> _materialSprims;
+
+    //! All holdout render items, kept for per-frame setWantConsolidation(false) in CommitResources.
+    std::vector<MHWRender::MRenderItem*> _holdoutRenderItems;
 
     std::unique_ptr<HdVP2RenderParam>
             _renderParam; //!< Render param used to provided access to VP2 during prim synchronization
