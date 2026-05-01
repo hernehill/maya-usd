@@ -1,0 +1,854 @@
+From 5efccd66448ddcddf3fd221e91894921197e37e8 Mon Sep 17 00:00:00 2001
+From: Marcelo Sercheli <marcelo.sercheli@hernehill.com>
+Date: Thu, 30 Apr 2026 22:53:11 -0400
+Subject: [PATCH 1/6] first implementation to match the latest findings
+
+---
+ .../vp2RenderDelegate/mayaPrimCommon.cpp      |  15 ++
+ .../render/vp2RenderDelegate/mayaPrimCommon.h |   6 +
+ lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp |  87 ++++++++-
+ lib/mayaUsd/render/vp2RenderDelegate/mesh.h   |   6 +-
+ .../vp2RenderDelegate/renderDelegate.cpp      | 173 ++++++++++++++++++
+ .../render/vp2RenderDelegate/renderDelegate.h |   2 +
+ 6 files changed, 287 insertions(+), 2 deletions(-)
+
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.cpp b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.cpp
+index 2b2d2d90e..d06341799 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.cpp
+@@ -99,6 +99,21 @@ void MayaUsdCustomData::RemoveInstancePrimPaths(const SdfPath& prim)
+ 
+ #endif
+ 
++bool MayaUsdRPrim::_IsHoldout(const SdfPath& id) const
++{
++    auto* const          param = static_cast<HdVP2RenderParam*>(_delegate->GetRenderParam());
++    ProxyRenderDelegate& drawScene = param->GetDrawScene();
++    UsdImagingDelegate*  usdDelegate = drawScene.GetUsdImagingDelegate();
++    if (!usdDelegate) return false;
++
++    // UsdImagingDelegate::Get() reads the primvar directly from USD.
++    // The token "maya:holdout" matches a primvar named "primvars:maya:holdout".
++    VtValue val = usdDelegate->Get(id, TfToken("maya:holdout"));
++    if (val.IsHolding<bool>()) return val.UncheckedGet<bool>();
++    if (val.IsHolding<int>())  return val.UncheckedGet<int>() != 0;
++    return false;
++}
++
+ MayaUsdRPrim::MayaUsdRPrim(HdVP2RenderDelegate* delegate, const SdfPath& id)
+     : _delegate(delegate)
+     , _hydraId(id)
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h
+index 85c42184a..045e71135 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h
+@@ -371,6 +371,9 @@ protected:
+         MUint64               exclusionFlag) const;
+ #endif
+ 
++    //! Returns true if the prim has the maya:holdout primvar set to true.
++    bool _IsHoldout(const SdfPath& id) const;
++
+     virtual TfToken& _RenderTag() = 0;
+ 
+     //! VP2 render delegate for which this prim was created
+@@ -410,6 +413,9 @@ protected:
+ 
+     //! For instanced prim, holds the corresponding path in USD prototype
+     InstancePrototypePath _pathInPrototype { SdfPath(), kNativeInstancing };
++
++    //! Whether this prim has the maya:holdout primvar set to true.
++    bool _isHoldout { false };
+ };
+ 
+ PXR_NAMESPACE_CLOSE_SCOPE
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+index 3b6465302..d5982c955 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+@@ -404,6 +404,21 @@ HdVP2Mesh::HdVP2Mesh(HdVP2RenderDelegate* delegate, const SdfPath& id, const Sdf
+ #endif
+ }
+ 
++HdVP2Mesh::~HdVP2Mesh()
++{
++    // Release per-item holdout shader clones.
++    if (!_holdoutShaderClones.empty()) {
++        MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
++        const MHWRender::MShaderManager* shaderMgr
++            = renderer ? renderer->getShaderManager() : nullptr;
++        if (shaderMgr) {
++            for (auto* clone : _holdoutShaderClones)
++                shaderMgr->releaseShader(clone);
++        }
++        _holdoutShaderClones.clear();
++    }
++}
++
+ void HdVP2Mesh::_PrepareSharedVertexBuffers(
+     HdSceneDelegate*   delegate,
+     const HdDirtyBits& rprimDirtyBits,
+@@ -891,6 +906,32 @@ void HdVP2Mesh::Sync(
+ #endif
+     }
+ 
++    // Detect changes to the maya:holdout primvar every sync.
++    // When it transitions, mark DirtyMaterialId so _UpdateDrawItem re-evaluates
++    // the shader assignment and picks up or releases the holdout shader clone.
++    {
++        const bool newHoldout = _IsHoldout(id);
++        if (newHoldout != _isHoldout) {
++            _isHoldout = newHoldout;
++            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
++            RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& d) {
++                d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
++            };
++            _ForEachRenderItem(_reprs, markMaterialDirty);
++            if (!_isHoldout) {
++                // Release shader clones when holdout is turned off.
++                MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
++                const MHWRender::MShaderManager* shaderMgr
++                    = renderer ? renderer->getShaderManager() : nullptr;
++                if (shaderMgr) {
++                    for (auto* clone : _holdoutShaderClones)
++                        shaderMgr->releaseShader(clone);
++                }
++                _holdoutShaderClones.clear();
++            }
++        }
++    }
++
+ #if defined(HD_API_VERSION) && HD_API_VERSION >= 36
+     // Update our instance topology if necessary.
+     _UpdateInstancer(delegate, dirtyBits);
+@@ -1777,7 +1818,31 @@ void HdVP2Mesh::_UpdateDrawItem(
+     if (desc.geomStyle == HdMeshGeomStyleHull
+         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
+         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
+-        if (dirtyMaterialId) {
++
++        // Holdout: when this prim has maya:holdout=true, override with the holdout shader
++        // regardless of material binding. Each render item needs its own clone of the shared
++        // holdout shader so VP2 fires pre/post-draw callbacks independently per item.
++        if (_isHoldout) {
++            if (dirtyMaterialId) {
++                MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
++                if (holdoutShader) {
++                    // Check whether this render item already has a holdout clone assigned.
++                    const bool alreadyHasClone = (drawItemData._shader != nullptr)
++                        && (std::find(_holdoutShaderClones.begin(), _holdoutShaderClones.end(),
++                                      drawItemData._shader)
++                            != _holdoutShaderClones.end());
++                    if (!alreadyHasClone) {
++                        MHWRender::MShaderInstance* clone = holdoutShader->clone();
++                        if (clone) {
++                            _holdoutShaderClones.push_back(clone);
++                            drawItemData._shader = clone;
++                            stateToCommit._shader = clone;
++                        }
++                    }
++                    stateToCommit._isTransparent = false;
++                }
++            }
++        } else if (dirtyMaterialId) {
+             SdfPath materialId = GetMaterialId();
+             if (drawItemData._geomSubset.id != SdfPath::EmptyPath()) {
+                 materialId = drawItemData._geomSubset.materialId;
+@@ -2242,12 +2307,14 @@ void HdVP2Mesh::_UpdateDrawItem(
+     // rprim is marked dirty to give any stale render items a chance to update. If there are
+     // no stale render items then stateToCommit can be empty!
+     if (!stateToCommit.Empty()) {
++        const bool isHoldout = _isHoldout;
+         _delegate->GetVP2ResourceRegistry().EnqueueCommit([stateToCommit,
+                                                            param,
+                                                            primvarInfo,
+                                                            primvars,
+                                                            indexBuffer,
+                                                            isBBoxItem,
++                                                           isHoldout,
+                                                            &sharedBBoxGeom]() {
+             // This code executes serially, once per mesh updated. Keep
+             // performance in mind while modifying this code.
+@@ -2342,6 +2409,12 @@ void HdVP2Mesh::_UpdateDrawItem(
+                         "Could not create OGS geometry for [%s], maybe it has no geometry?",
+                         renderItem->name().asChar());
+                 }
++
++                // Holdout items must have consolidation disabled even after geometry submission,
++                // because setGeometryForRenderItem() may re-enable consolidation internally.
++                if (isHoldout) {
++                    renderItem->setWantConsolidation(false);
++                }
+             }
+ 
+             // Important, update instance transforms after setting geometry on render items!
+@@ -2752,6 +2825,18 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
+     renderItem->castsShadows(true);
+     renderItem->receivesShadows(true);
+     renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
++
++    // Holdout render items need to suppress consolidation so VP2 fires the
++    // pre/post-draw callbacks on each item independently. Also keep them out
++    // of the transparent list and exclude from shadows.
++    if (_isHoldout) {
++        renderItem->setExcludedFromPostEffects(true);
++        renderItem->castsShadows(false);
++        renderItem->receivesShadows(false);
++        renderItem->setTreatAsTransparent(false);
++        _SetWantConsolidation(*renderItem, false);
++    }
++
+     _InitRenderItemCommon(renderItem);
+ 
+ #ifdef MAYA_NEW_POINT_SNAPPING_SUPPORT
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mesh.h b/lib/mayaUsd/render/vp2RenderDelegate/mesh.h
+index aa83ec1f2..b17cdced2 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mesh.h
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mesh.h
+@@ -120,7 +120,7 @@ public:
+ #endif
+ 
+     //! Destructor.
+-    ~HdVP2Mesh() override = default;
++    ~HdVP2Mesh() override;
+ 
+     void Sync(HdSceneDelegate*, HdRenderParam*, HdDirtyBits*, const TfToken& reprToken) override;
+ 
+@@ -228,6 +228,10 @@ private:
+     // Record if the points position are generated by a UsdSkel.
+     bool _pointsFromSkel { false };
+ 
++    //! Per-render-item holdout shader clones. Each item must have its own clone
++    //! so VP2 fires the pre/post-draw callbacks independently per item.
++    std::vector<MHWRender::MShaderInstance*> _holdoutShaderClones;
++
+     static size_t _gpuNormalsComputeThreshold;
+ };
+ 
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp
+index c677f58bc..77a12a973 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp
+@@ -38,6 +38,7 @@
+ 
+ #include <maya/MGlobal.h>
+ #include <maya/MProfiler.h>
++#include <maya/MStateManager.h>
+ #include <maya/MString.h>
+ #include <maya/MStringArray.h>
+ 
+@@ -93,6 +94,150 @@ const MString kPointSizeParameterName = "pointSize";       //!< Shader parameter
+ const MString kCurveBasisParameterName = "curveBasis";     //!< Shader parameter name
+ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of the fallback shader
+ 
++// ---------------------------------------------------------------------------
++// Holdout shader callbacks
++//
++// How Maya's holdout pipeline works:
++//
++// 1. HoldoutDrawPass (semantic: holdOutBKGDGraphSemantic) pre-renders the full
++//    scene, including the image plane, into the beauty target. This only runs
++//    when Maya's holdOutList is non-empty (i.e. a native Maya node with
++//    holdOut=true exists in the scene).
++//
++// 2. HoldOutPass then multiplies holdout geometry regions to black using the
++//    mayaHoldOutShader, revealing the image plane content underneath.
++//
++// 3. MayaShadedBeauty draws the full opaque scene on top.
++//
++// Our USD holdout items sit in the opaque list. The callback below gives them
++// different behavior per pass:
++//
++//   holdOutBKGDGraphSemantic  ->  completely invisible (no depth, no colour).
++//                                 The image plane must render freely here.
++//
++//   kOpaqueGeometrySemantic   ->  depth write ON, colour write OFF (kNoChannels).
++//                                 Occludes later 3D geometry; the image-plane
++//                                 content placed by HoldoutDrawPass is preserved.
++//
++//   kNonPEPatternPassSemantic ->  do nothing. solidColor=(0,0,0,0) writes
++//                                 alpha=0 naturally to the alpha-mask target,
++//                                 which the compositor uses when post-effects
++//                                 (SSAO/DOF/MB) are active.
++//
++//   Any other pass (shadow, preZ, etc.) -> suppress all writes.
++// ---------------------------------------------------------------------------
++
++static void HoldoutPreDrawCallback(
++    MHWRender::MDrawContext&          context,
++    const MHWRender::MRenderItemList& /*renderItems*/,
++    MHWRender::MShaderInstance* /*shader*/)
++{
++    const MStringArray& semantics = context.getPassContext().passSemantics();
++
++    bool isOpaque       = false;
++    bool isNonPEPattern = false;
++    bool isHoldoutBKGD  = false;
++    for (unsigned int i = 0; i < semantics.length(); ++i) {
++        if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
++            isOpaque = true;
++        else if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
++            isNonPEPattern = true;
++        else if (semantics[i] == "holdOutBKGDGraphSemantic")
++            isHoldoutBKGD = true;
++    }
++
++    // nonPEPatternPass: writing to the alpha-mask target.
++    // solidColor=(0,0,0,0) writes alpha=0 naturally — compositor shows image plane.
++    // No state override needed.
++    if (isNonPEPattern)
++        return;
++
++    MHWRender::MStateManager* sm = context.getStateManager();
++    if (!sm) return;
++
++    auto suppressAllWrites = [&]() {
++        MHWRender::MDepthStencilStateDesc ds;
++        ds.setDefaults();
++        ds.depthEnable      = false;
++        ds.depthWriteEnable = false;
++        if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
++
++        MHWRender::MBlendStateDesc bl;
++        bl.targetBlends[0].blendEnable     = false;
++        bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
++        if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
++    };
++
++    if (isHoldoutBKGD) {
++        // HoldoutDrawPass pre-render: image plane is being drawn, we must be invisible.
++        suppressAllWrites();
++        return;
++    }
++
++    if (!isOpaque) {
++        // Shadow, preZ, or any other pass: suppress everything.
++        suppressAllWrites();
++        return;
++    }
++
++    // Opaque beauty pass: write depth to occlude later geometry,
++    // suppress ALL colour/alpha writes (image plane content stays untouched).
++    MHWRender::MRasterizerStateDesc rs;
++    rs.setDefaults();
++    rs.cullMode = MHWRender::MRasterizerState::kCullNone;
++    if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
++
++    MHWRender::MDepthStencilStateDesc ds;
++    ds.depthEnable      = true;
++    ds.depthWriteEnable = true;
++    ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
++    if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
++
++    MHWRender::MBlendStateDesc bl;
++    bl.targetBlends[0].blendEnable     = false;
++    bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
++    if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
++}
++
++static void HoldoutPostDrawCallback(
++    MHWRender::MDrawContext&          context,
++    const MHWRender::MRenderItemList& /*renderItems*/,
++    MHWRender::MShaderInstance* /*shader*/)
++{
++    const MStringArray& semantics = context.getPassContext().passSemantics();
++
++    bool isNonPEPattern = false;
++    bool isOpaque       = false;
++    bool isHoldoutBKGD  = false;
++    for (unsigned int i = 0; i < semantics.length(); ++i) {
++        if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
++            isNonPEPattern = true;
++        else if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
++            isOpaque = true;
++        else if (semantics[i] == "holdOutBKGDGraphSemantic")
++            isHoldoutBKGD = true;
++    }
++
++    if (isNonPEPattern) return; // pre-draw did nothing
++
++    MHWRender::MStateManager* sm = context.getStateManager();
++    if (!sm) return;
++
++    MHWRender::MDepthStencilStateDesc ds;
++    ds.setDefaults();
++    if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
++
++    MHWRender::MBlendStateDesc bl;
++    bl.setDefaults();
++    if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
++
++    if (isOpaque && !isHoldoutBKGD) {
++        MHWRender::MRasterizerStateDesc rs;
++        rs.setDefaults();
++        if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
++    }
++}
++
+ //! Returns a boolean of whether or not we want the standardSurface shader fragment graph fallbacks
+ bool WantStandardSurfaceFallback()
+ {
+@@ -228,6 +373,21 @@ public:
+             _3dCPVFatPointShader->setParameter(kPointSizeParameterName, size);
+         }
+ 
++        // Holdout shader: k3dSolidShader with solidColor=(0,0,0,0) and context-aware
++        // pre/post-draw callbacks. solidColor alpha=0 is used by the nonPEPatternPass
++        // to write alpha=0 into the alpha-mask target so the compositor shows the
++        // image plane through holdout regions when post-effects are active.
++        // setTreatAsTransparent(false) keeps the item in the opaque draw list regardless
++        // of the shader's alpha output.
++        _holdoutShader = shaderMgr->getStockShader(
++            MHWRender::MShaderManager::k3dSolidShader,
++            HoldoutPreDrawCallback,
++            HoldoutPostDrawCallback);
++        if (TF_VERIFY(_holdoutShader)) {
++            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
++            _holdoutShader->setParameter(kSolidColorParameterName, color);
++        }
++
+         for (size_t i = 0; i < FallbackShaderTypeCount; i++) {
+             MHWRender::MShaderInstance* shader
+                 = shaderMgr->getFragmentShader(_cpvFallbackShaderNames[i], kStructOutputName, true);
+@@ -320,6 +480,10 @@ public:
+      */
+     MHWRender::MShaderInstance* Get3dCPVFatPointShader() const { return _3dCPVFatPointShader; }
+ 
++    /*! \brief  Returns the holdout shader instance.
++     */
++    MHWRender::MShaderInstance* GetHoldoutShader() const { return _holdoutShader; }
++
+     /*! \brief  Returns a 3d solid shader with the specified color.
+      */
+     MHWRender::MShaderInstance* Get3dSolidShader(const MColor& color)
+@@ -537,6 +701,7 @@ public:
+             _3dDefaultMaterialShader = nullptr;
+             _3dCPVSolidShader = nullptr;
+             _3dCPVFatPointShader = nullptr;
++            _holdoutShader = nullptr;
+         }
+         _isInitialized = false;
+     }
+@@ -566,6 +731,7 @@ private:
+ 
+     MHWRender::MShaderInstance* _3dCPVSolidShader { nullptr };    //!< 3d CPV solid-color shader
+     MHWRender::MShaderInstance* _3dCPVFatPointShader { nullptr }; //!< 3d CPV fat point shader
++    MHWRender::MShaderInstance* _holdoutShader { nullptr };       //!< Holdout shader
+ 
+     HdVP2ShaderCache _userCache; //!< A thread-safe cache of user generated shaders.
+ };
+@@ -1189,6 +1355,13 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColo
+     return sShaderCache.Get3dFatPointShader(color);
+ }
+ 
++/*! \brief  Returns the holdout shader instance.
++ */
++MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
++{
++    return sShaderCache.GetHoldoutShader();
++}
++
+ /*! \brief  Returns a sampler state as specified by the description.
+  */
+ const MHWRender::MSamplerState*
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.h b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.h
+index c275a97d8..be5999da3 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.h
++++ b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.h
+@@ -148,6 +148,8 @@ public:
+     MHWRender::MShaderInstance*
+     GetBasisCurvesCPVShader(const TfToken& curveType, const TfToken& curveBasis) const;
+ 
++    MHWRender::MShaderInstance* GetHoldoutShader() const;
++
+     MHWRender::MShaderInstance* GetShaderFromCache(const TfToken& id);
+     bool AddShaderToCache(const TfToken& id, const MHWRender::MShaderInstance& shader);
+ #ifdef WANT_MATERIALX_BUILD
+-- 
+2.47.1
+
+
+From a2238ecd921cc399436ac6e562727c879273243b Mon Sep 17 00:00:00 2001
+From: Marcelo Sercheli <marcelo.sercheli@hernehill.com>
+Date: Fri, 1 May 2026 09:46:51 -0400
+Subject: [PATCH 2/6] small refactor
+
+---
+ .../render/vp2RenderDelegate/mayaPrimCommon.h  |  8 ++++----
+ lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp  | 18 ++++++++++++++----
+ lib/mayaUsd/render/vp2RenderDelegate/mesh.h    |  2 +-
+ .../vp2RenderDelegate/renderDelegate.cpp       | 13 ++++++++-----
+ 4 files changed, 27 insertions(+), 14 deletions(-)
+
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h
+index 045e71135..621a80677 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mayaPrimCommon.h
+@@ -371,9 +371,12 @@ protected:
+         MUint64               exclusionFlag) const;
+ #endif
+ 
+-    //! Returns true if the prim has the maya:holdout primvar set to true.
++    //! Returns true if the prim is flagged to be holdout
+     bool _IsHoldout(const SdfPath& id) const;
+ 
++    //! Whether this prim was flagged to be holdout
++    bool _isHoldout { false };
++
+     virtual TfToken& _RenderTag() = 0;
+ 
+     //! VP2 render delegate for which this prim was created
+@@ -413,9 +416,6 @@ protected:
+ 
+     //! For instanced prim, holds the corresponding path in USD prototype
+     InstancePrototypePath _pathInPrototype { SdfPath(), kNativeInstancing };
+-
+-    //! Whether this prim has the maya:holdout primvar set to true.
+-    bool _isHoldout { false };
+ };
+ 
+ PXR_NAMESPACE_CLOSE_SCOPE
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+index d5982c955..332f7bf4f 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+@@ -912,6 +912,7 @@ void HdVP2Mesh::Sync(
+     {
+         const bool newHoldout = _IsHoldout(id);
+         if (newHoldout != _isHoldout) {
++            // We are transitioning (true -> false or vice-versa)
+             _isHoldout = newHoldout;
+             *dirtyBits |= HdChangeTracker::DirtyMaterialId;
+             RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& d) {
+@@ -1819,9 +1820,9 @@ void HdVP2Mesh::_UpdateDrawItem(
+         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
+         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
+ 
+-        // Holdout: when this prim has maya:holdout=true, override with the holdout shader
+-        // regardless of material binding. Each render item needs its own clone of the shared
+-        // holdout shader so VP2 fires pre/post-draw callbacks independently per item.
++        // Holdout: override with the holdout shader regardless of material binding.
++        // Each render item needs its own clone of the shared holdout shader so VP2
++        // fires pre/post-draw callbacks independently per item.
+         if (_isHoldout) {
+             if (dirtyMaterialId) {
+                 MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
+@@ -1835,10 +1836,18 @@ void HdVP2Mesh::_UpdateDrawItem(
+                         MHWRender::MShaderInstance* clone = holdoutShader->clone();
+                         if (clone) {
+                             _holdoutShaderClones.push_back(clone);
+-                            drawItemData._shader = clone;
++                            drawItemData._shader  = clone;
+                             stateToCommit._shader = clone;
+                         }
+                     }
++                    // This will be used later inside the Commit lambda for
++                    // setTreatAsTransparent. It will serve 2 purposes:
++                    // 1. keep the renderItem in the opaqueList
++                    // 2. VP2 will use the setTreatAsTransparent override value and
++                    //      ignore the result of isTransparent() check on the shader.
++                    //      Since our holdout shader has alpha=0, it would return
++                    //      true for isTransparent() and VP2 would remove the item
++                    //      from the opaqueList.
+                     stateToCommit._isTransparent = false;
+                 }
+             }
+@@ -2308,6 +2317,7 @@ void HdVP2Mesh::_UpdateDrawItem(
+     // no stale render items then stateToCommit can be empty!
+     if (!stateToCommit.Empty()) {
+         const bool isHoldout = _isHoldout;
++
+         _delegate->GetVP2ResourceRegistry().EnqueueCommit([stateToCommit,
+                                                            param,
+                                                            primvarInfo,
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mesh.h b/lib/mayaUsd/render/vp2RenderDelegate/mesh.h
+index b17cdced2..6732aada7 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mesh.h
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mesh.h
+@@ -228,7 +228,7 @@ private:
+     // Record if the points position are generated by a UsdSkel.
+     bool _pointsFromSkel { false };
+ 
+-    //! Per-render-item holdout shader clones. Each item must have its own clone
++    //! Per-renderItem holdout shader clones. Each item must have its own clone
+     //! so VP2 fires the pre/post-draw callbacks independently per item.
+     std::vector<MHWRender::MShaderInstance*> _holdoutShaderClones;
+ 
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp
+index 77a12a973..c91a2f028 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/renderDelegate.cpp
+@@ -97,6 +97,10 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of
+ // ---------------------------------------------------------------------------
+ // Holdout shader callbacks
+ //
++// NOTE: These conclusions came after analizing contents of XML files inside
++// the bin/ScriptFragment directory of Maya's installation. It would be nice
++// if this could be confirmed by Autodesk developers.
++//
+ // How Maya's holdout pipeline works:
+ //
+ // 1. HoldoutDrawPass (semantic: holdOutBKGDGraphSemantic) pre-renders the full
+@@ -128,7 +132,7 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of
+ // ---------------------------------------------------------------------------
+ 
+ static void HoldoutPreDrawCallback(
+-    MHWRender::MDrawContext&          context,
++    MHWRender::MDrawContext& context,
+     const MHWRender::MRenderItemList& /*renderItems*/,
+     MHWRender::MShaderInstance* /*shader*/)
+ {
+@@ -149,8 +153,7 @@ static void HoldoutPreDrawCallback(
+     // nonPEPatternPass: writing to the alpha-mask target.
+     // solidColor=(0,0,0,0) writes alpha=0 naturally — compositor shows image plane.
+     // No state override needed.
+-    if (isNonPEPattern)
+-        return;
++    if (isNonPEPattern) return;
+ 
+     MHWRender::MStateManager* sm = context.getStateManager();
+     if (!sm) return;
+@@ -184,7 +187,7 @@ static void HoldoutPreDrawCallback(
+     // suppress ALL colour/alpha writes (image plane content stays untouched).
+     MHWRender::MRasterizerStateDesc rs;
+     rs.setDefaults();
+-    rs.cullMode = MHWRender::MRasterizerState::kCullNone;
++    rs.cullMode = MHWRender::MRasterizerState::kCullNone; // helps with right/leftHanded meshes
+     if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
+ 
+     MHWRender::MDepthStencilStateDesc ds;
+@@ -200,7 +203,7 @@ static void HoldoutPreDrawCallback(
+ }
+ 
+ static void HoldoutPostDrawCallback(
+-    MHWRender::MDrawContext&          context,
++    MHWRender::MDrawContext& context,
+     const MHWRender::MRenderItemList& /*renderItems*/,
+     MHWRender::MShaderInstance* /*shader*/)
+ {
+-- 
+2.47.1
+
+
+From 8694be8a00b4601f71551f0b8b7342c7b3ef76ba Mon Sep 17 00:00:00 2001
+From: Marcelo Sercheli <marcelo.sercheli@hernehill.com>
+Date: Fri, 1 May 2026 12:07:35 -0400
+Subject: [PATCH 3/6] fix fallback shader to not apply if holdout
+
+---
+ lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp | 5 +++--
+ package.py                                    | 3 ++-
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+index 332f7bf4f..7ccb86ef7 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+@@ -1895,8 +1895,9 @@ void HdVP2Mesh::_UpdateDrawItem(
+             }
+         }
+ 
+-        bool useFallbackMaterial
+-            = drawItemData._shaderIsFallback && _PrimvarIsRequired(HdTokens->displayColor);
++        bool useFallbackMaterial = !_isHoldout
++            && drawItemData._shaderIsFallback
++            && _PrimvarIsRequired(HdTokens->displayColor);
+         bool updateFallbackMaterial = useFallbackMaterial && drawItemData._fallbackColorDirty;
+ 
+         // Use fallback shader if there is no material binding or we failed to create a shader
+diff --git a/package.py b/package.py
+index 64fa85049..ce38d7606 100644
+--- a/package.py
++++ b/package.py
+@@ -1,6 +1,6 @@
+ name = "maya_usd"
+ 
+-version = "0.34.5.hh.1.1.0"
++version = "0.34.5.hh.1.2.0"
+ 
+ authors = [
+     "Autodesk",
+@@ -34,6 +34,7 @@ def commands():
+     env.REZ_MAYA_USD_ROOT = "{root}"
+     env.MAYA_USD_ROOT = "{root}"
+     env.MAYA_USD_LOCATION = "{root}"
++    env.MAYA_USD_MRX_HOLDOUT = "1"
+ 
+ 
+ def post_commands():
+-- 
+2.47.1
+
+
+From 3a20c10dc25eec912da529fe2883bd073603812b Mon Sep 17 00:00:00 2001
+From: Marcelo Sercheli <marcelo.sercheli@hernehill.com>
+Date: Fri, 1 May 2026 13:05:59 -0400
+Subject: [PATCH 4/6] set want consolidation to false after it was set to true
+
+---
+ lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+index 7ccb86ef7..8c820023d 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+@@ -2837,19 +2837,23 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
+     renderItem->receivesShadows(true);
+     renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
+ 
+-    // Holdout render items need to suppress consolidation so VP2 fires the
+-    // pre/post-draw callbacks on each item independently. Also keep them out
+-    // of the transparent list and exclude from shadows.
++    // Holdout items need to be out of the transparent list and exclude from shadows
+     if (_isHoldout) {
+         renderItem->setExcludedFromPostEffects(true);
+         renderItem->castsShadows(false);
+         renderItem->receivesShadows(false);
+         renderItem->setTreatAsTransparent(false);
+-        _SetWantConsolidation(*renderItem, false);
+     }
+ 
+     _InitRenderItemCommon(renderItem);
+ 
++    // Holdout items need to suppress consolidation so VP2 fires the
++    // pre/post-draw callbacks on each item independently. Must be done after
++    // _InitRenderItemCommon since it always set to true.
++    if (_isHoldout) {
++        _SetWantConsolidation(*renderItem, false);
++    }
++
+ #ifdef MAYA_NEW_POINT_SNAPPING_SUPPORT
+     MSelectionMask selectionMask(MSelectionMask::kSelectMeshes);
+     selectionMask.addMask(MSelectionMask::kSelectPointsForGravity);
+-- 
+2.47.1
+
+
+From 7a6f4fe28db816bd5b251a447b0cf80c311636e7 Mon Sep 17 00:00:00 2001
+From: Marcelo Sercheli <marcelo.sercheli@hernehill.com>
+Date: Fri, 1 May 2026 13:24:15 -0400
+Subject: [PATCH 5/6] force consolidation false
+
+---
+ lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp | 40 ++++++++++++-------
+ 1 file changed, 26 insertions(+), 14 deletions(-)
+
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+index 8c820023d..c691bc4a1 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+@@ -2354,6 +2354,14 @@ void HdVP2Mesh::_UpdateDrawItem(
+ 
+             ProxyRenderDelegate& drawScene = param->GetDrawScene();
+ 
++            // if (isHoldout) {
++            //     // Force opaque treatment — holdout items must be in the opaque draw
++            //     // list so they write depth and appear in nonPostEffectList. If VP2
++            //     // ever classifies them as transparent their pre-draw callback won't
++            //     // fire and neither depth nor alpha=0 will be written.
++            //     renderItem->setTreatAsTransparent(false);
++            // }
++
+             // TODO: this is now including all buffers for the requirements of all
+             // the render items on this rprim. We could filter it down based on the
+             // requirements of the shader.
+@@ -2421,11 +2429,18 @@ void HdVP2Mesh::_UpdateDrawItem(
+                         renderItem->name().asChar());
+                 }
+ 
+-                // Holdout items must have consolidation disabled even after geometry submission,
+-                // because setGeometryForRenderItem() may re-enable consolidation internally.
+-                if (isHoldout) {
+-                    renderItem->setWantConsolidation(false);
+-                }
++                // // Holdout items must have consolidation disabled even after geometry submission,
++                // // because setGeometryForRenderItem() may re-enable consolidation internally.
++                // if (isHoldout) {
++                //     renderItem->setWantConsolidation(false);
++                // }
++            }
++
++            // Holdout items must unconditionally suppress consolidation every commit,
++            // not just when geometry changes, because VP2 may re-evaluate consolidation
++            // eligibility on any frame.
++            if (isHoldout) {
++                renderItem->setWantConsolidation(false);
+             }
+ 
+             // Important, update instance transforms after setting geometry on render items!
+@@ -2837,20 +2852,17 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
+     renderItem->receivesShadows(true);
+     renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
+ 
+-    // Holdout items need to be out of the transparent list and exclude from shadows
++    _InitRenderItemCommon(renderItem);
++
++    // Holdout items need to be out of the transparent list and exclude from shadows.
++    // We alsp need to suppress consolidation so VP2 fires the pre/post-draw callbacks
++    // on each item independently. This must be done after _InitRenderItemCommon since
++    // it always set to true.
+     if (_isHoldout) {
+         renderItem->setExcludedFromPostEffects(true);
+         renderItem->castsShadows(false);
+         renderItem->receivesShadows(false);
+         renderItem->setTreatAsTransparent(false);
+-    }
+-
+-    _InitRenderItemCommon(renderItem);
+-
+-    // Holdout items need to suppress consolidation so VP2 fires the
+-    // pre/post-draw callbacks on each item independently. Must be done after
+-    // _InitRenderItemCommon since it always set to true.
+-    if (_isHoldout) {
+         _SetWantConsolidation(*renderItem, false);
+     }
+ 
+-- 
+2.47.1
+
+
+From 788b7d4a51834627a6012bc7adf1b886c285e161 Mon Sep 17 00:00:00 2001
+From: Marcelo Sercheli <marcelo.sercheli@hernehill.com>
+Date: Fri, 1 May 2026 13:25:46 -0400
+Subject: [PATCH 6/6] remove commented out code
+
+---
+ lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp | 14 --------------
+ 1 file changed, 14 deletions(-)
+
+diff --git a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+index c691bc4a1..6afb4df10 100644
+--- a/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
++++ b/lib/mayaUsd/render/vp2RenderDelegate/mesh.cpp
+@@ -2354,14 +2354,6 @@ void HdVP2Mesh::_UpdateDrawItem(
+ 
+             ProxyRenderDelegate& drawScene = param->GetDrawScene();
+ 
+-            // if (isHoldout) {
+-            //     // Force opaque treatment — holdout items must be in the opaque draw
+-            //     // list so they write depth and appear in nonPostEffectList. If VP2
+-            //     // ever classifies them as transparent their pre-draw callback won't
+-            //     // fire and neither depth nor alpha=0 will be written.
+-            //     renderItem->setTreatAsTransparent(false);
+-            // }
+-
+             // TODO: this is now including all buffers for the requirements of all
+             // the render items on this rprim. We could filter it down based on the
+             // requirements of the shader.
+@@ -2428,12 +2420,6 @@ void HdVP2Mesh::_UpdateDrawItem(
+                         "Could not create OGS geometry for [%s], maybe it has no geometry?",
+                         renderItem->name().asChar());
+                 }
+-
+-                // // Holdout items must have consolidation disabled even after geometry submission,
+-                // // because setGeometryForRenderItem() may re-enable consolidation internally.
+-                // if (isHoldout) {
+-                //     renderItem->setWantConsolidation(false);
+-                // }
+             }
+ 
+             // Holdout items must unconditionally suppress consolidation every commit,
+-- 
+2.47.1
+
