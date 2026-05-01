@@ -371,6 +371,12 @@ protected:
         MUint64               exclusionFlag) const;
 #endif
 
+    //! Returns true if the prim is flagged to be holdout
+    bool _IsHoldout(const SdfPath& id) const;
+
+    //! Whether this prim was flagged to be holdout
+    bool _isHoldout { false };
+
     virtual TfToken& _RenderTag() = 0;
 
     //! VP2 render delegate for which this prim was created

@@ -99,6 +99,21 @@ void MayaUsdCustomData::RemoveInstancePrimPaths(const SdfPath& prim)
 
 #endif
 
+bool MayaUsdRPrim::_IsHoldout(const SdfPath& id) const
+{
+    auto* const          param = static_cast<HdVP2RenderParam*>(_delegate->GetRenderParam());
+    ProxyRenderDelegate& drawScene = param->GetDrawScene();
+    UsdImagingDelegate*  usdDelegate = drawScene.GetUsdImagingDelegate();
+    if (!usdDelegate) return false;
+
+    // UsdImagingDelegate::Get() reads the primvar directly from USD.
+    // The token "maya:holdout" matches a primvar named "primvars:maya:holdout".
+    VtValue val = usdDelegate->Get(id, TfToken("maya:holdout"));
+    if (val.IsHolding<bool>()) return val.UncheckedGet<bool>();
+    if (val.IsHolding<int>())  return val.UncheckedGet<int>() != 0;
+    return false;
+}
+
 MayaUsdRPrim::MayaUsdRPrim(HdVP2RenderDelegate* delegate, const SdfPath& id)
     : _delegate(delegate)
     , _hydraId(id)

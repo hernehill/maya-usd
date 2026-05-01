@@ -1,6 +1,6 @@
 name = "maya_usd"
 
-version = "0.34.5.hh.1.1.0"
+version = "0.34.5.hh.1.2.0"
 
 authors = [
     "Autodesk",
@@ -34,6 +34,7 @@ def commands():
     env.REZ_MAYA_USD_ROOT = "{root}"
     env.MAYA_USD_ROOT = "{root}"
     env.MAYA_USD_LOCATION = "{root}"
+    env.MAYA_USD_MRX_HOLDOUT = "1"
 
 
 def post_commands():

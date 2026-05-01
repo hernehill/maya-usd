@@ -148,6 +148,8 @@ public:
     MHWRender::MShaderInstance*
     GetBasisCurvesCPVShader(const TfToken& curveType, const TfToken& curveBasis) const;
 
+    MHWRender::MShaderInstance* GetHoldoutShader() const;
+
     MHWRender::MShaderInstance* GetShaderFromCache(const TfToken& id);
     bool AddShaderToCache(const TfToken& id, const MHWRender::MShaderInstance& shader);
 #ifdef WANT_MATERIALX_BUILD
