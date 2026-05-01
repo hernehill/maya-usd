@@ -404,6 +404,21 @@ HdVP2Mesh::HdVP2Mesh(HdVP2RenderDelegate* delegate, const SdfPath& id, const Sdf
 #endif
 }
 
+HdVP2Mesh::~HdVP2Mesh()
+{
+    // Release per-item holdout shader clones.
+    if (!_holdoutShaderClones.empty()) {
+        MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
+        const MHWRender::MShaderManager* shaderMgr
+            = renderer ? renderer->getShaderManager() : nullptr;
+        if (shaderMgr) {
+            for (auto* clone : _holdoutShaderClones)
+                shaderMgr->releaseShader(clone);
+        }
+        _holdoutShaderClones.clear();
+    }
+}
+
 void HdVP2Mesh::_PrepareSharedVertexBuffers(
     HdSceneDelegate*   delegate,
     const HdDirtyBits& rprimDirtyBits,
@@ -889,6 +904,32 @@ void HdVP2Mesh::Sync(
 #else
         SetMaterialId(materialId);
 #endif
+    }
+
+    // Detect changes to the maya:holdout primvar every sync.
+    // When it transitions, mark DirtyMaterialId so _UpdateDrawItem re-evaluates
+    // the shader assignment and picks up or releases the holdout shader clone.
+    {
+        const bool newHoldout = _IsHoldout(id);
+        if (newHoldout != _isHoldout) {
+            _isHoldout = newHoldout;
+            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
+            RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& d) {
+                d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
+            };
+            _ForEachRenderItem(_reprs, markMaterialDirty);
+            if (!_isHoldout) {
+                // Release shader clones when holdout is turned off.
+                MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
+                const MHWRender::MShaderManager* shaderMgr
+                    = renderer ? renderer->getShaderManager() : nullptr;
+                if (shaderMgr) {
+                    for (auto* clone : _holdoutShaderClones)
+                        shaderMgr->releaseShader(clone);
+                }
+                _holdoutShaderClones.clear();
+            }
+        }
     }
 
 #if defined(HD_API_VERSION) && HD_API_VERSION >= 36
@@ -1777,7 +1818,31 @@ void HdVP2Mesh::_UpdateDrawItem(
     if (desc.geomStyle == HdMeshGeomStyleHull
         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
-        if (dirtyMaterialId) {
+
+        // Holdout: when this prim has maya:holdout=true, override with the holdout shader
+        // regardless of material binding. Each render item needs its own clone of the shared
+        // holdout shader so VP2 fires pre/post-draw callbacks independently per item.
+        if (_isHoldout) {
+            if (dirtyMaterialId) {
+                MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
+                if (holdoutShader) {
+                    // Check whether this render item already has a holdout clone assigned.
+                    const bool alreadyHasClone = (drawItemData._shader != nullptr)
+                        && (std::find(_holdoutShaderClones.begin(), _holdoutShaderClones.end(),
+                                      drawItemData._shader)
+                            != _holdoutShaderClones.end());
+                    if (!alreadyHasClone) {
+                        MHWRender::MShaderInstance* clone = holdoutShader->clone();
+                        if (clone) {
+                            _holdoutShaderClones.push_back(clone);
+                            drawItemData._shader = clone;
+                            stateToCommit._shader = clone;
+                        }
+                    }
+                    stateToCommit._isTransparent = false;
+                }
+            }
+        } else if (dirtyMaterialId) {
             SdfPath materialId = GetMaterialId();
             if (drawItemData._geomSubset.id != SdfPath::EmptyPath()) {
                 materialId = drawItemData._geomSubset.materialId;
@@ -2242,12 +2307,14 @@ void HdVP2Mesh::_UpdateDrawItem(
     // rprim is marked dirty to give any stale render items a chance to update. If there are
     // no stale render items then stateToCommit can be empty!
     if (!stateToCommit.Empty()) {
+        const bool isHoldout = _isHoldout;
         _delegate->GetVP2ResourceRegistry().EnqueueCommit([stateToCommit,
                                                            param,
                                                            primvarInfo,
                                                            primvars,
                                                            indexBuffer,
                                                            isBBoxItem,
+                                                           isHoldout,
                                                            &sharedBBoxGeom]() {
             // This code executes serially, once per mesh updated. Keep
             // performance in mind while modifying this code.
@@ -2341,6 +2408,12 @@ void HdVP2Mesh::_UpdateDrawItem(
                     TF_WARN(
                         "Could not create OGS geometry for [%s], maybe it has no geometry?",
                         renderItem->name().asChar());
+                }
+
+                // Holdout items must have consolidation disabled even after geometry submission,
+                // because setGeometryForRenderItem() may re-enable consolidation internally.
+                if (isHoldout) {
+                    renderItem->setWantConsolidation(false);
                 }
             }
 
@@ -2752,6 +2825,18 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
     renderItem->castsShadows(true);
     renderItem->receivesShadows(true);
     renderItem->setShader(_delegate->GetFallbackShader(kOpaqueGray));
+
+    // Holdout render items need to suppress consolidation so VP2 fires the
+    // pre/post-draw callbacks on each item independently. Also keep them out
+    // of the transparent list and exclude from shadows.
+    if (_isHoldout) {
+        renderItem->setExcludedFromPostEffects(true);
+        renderItem->castsShadows(false);
+        renderItem->receivesShadows(false);
+        renderItem->setTreatAsTransparent(false);
+        _SetWantConsolidation(*renderItem, false);
+    }
+
     _InitRenderItemCommon(renderItem);
 
 #ifdef MAYA_NEW_POINT_SNAPPING_SUPPORT

@@ -38,6 +38,7 @@
 
 #include <maya/MGlobal.h>
 #include <maya/MProfiler.h>
+#include <maya/MStateManager.h>
 #include <maya/MString.h>
 #include <maya/MStringArray.h>
 
@@ -92,6 +93,150 @@ const MString kDiffuseParameterName = "diffuse";           //!< Shader parameter
 const MString kPointSizeParameterName = "pointSize";       //!< Shader parameter name
 const MString kCurveBasisParameterName = "curveBasis";     //!< Shader parameter name
 const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of the fallback shader
+
+// ---------------------------------------------------------------------------
+// Holdout shader callbacks
+//
+// How Maya's holdout pipeline works:
+//
+// 1. HoldoutDrawPass (semantic: holdOutBKGDGraphSemantic) pre-renders the full
+//    scene, including the image plane, into the beauty target. This only runs
+//    when Maya's holdOutList is non-empty (i.e. a native Maya node with
+//    holdOut=true exists in the scene).
+//
+// 2. HoldOutPass then multiplies holdout geometry regions to black using the
+//    mayaHoldOutShader, revealing the image plane content underneath.
+//
+// 3. MayaShadedBeauty draws the full opaque scene on top.
+//
+// Our USD holdout items sit in the opaque list. The callback below gives them
+// different behavior per pass:
+//
+//   holdOutBKGDGraphSemantic  ->  completely invisible (no depth, no colour).
+//                                 The image plane must render freely here.
+//
+//   kOpaqueGeometrySemantic   ->  depth write ON, colour write OFF (kNoChannels).
+//                                 Occludes later 3D geometry; the image-plane
+//                                 content placed by HoldoutDrawPass is preserved.
+//
+//   kNonPEPatternPassSemantic ->  do nothing. solidColor=(0,0,0,0) writes
+//                                 alpha=0 naturally to the alpha-mask target,
+//                                 which the compositor uses when post-effects
+//                                 (SSAO/DOF/MB) are active.
+//
+//   Any other pass (shadow, preZ, etc.) -> suppress all writes.
+// ---------------------------------------------------------------------------
+
+static void HoldoutPreDrawCallback(
+    MHWRender::MDrawContext&          context,
+    const MHWRender::MRenderItemList& /*renderItems*/,
+    MHWRender::MShaderInstance* /*shader*/)
+{
+    const MStringArray& semantics = context.getPassContext().passSemantics();
+
+    bool isOpaque       = false;
+    bool isNonPEPattern = false;
+    bool isHoldoutBKGD  = false;
+    for (unsigned int i = 0; i < semantics.length(); ++i) {
+        if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
+            isOpaque = true;
+        else if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
+            isNonPEPattern = true;
+        else if (semantics[i] == "holdOutBKGDGraphSemantic")
+            isHoldoutBKGD = true;
+    }
+
+    // nonPEPatternPass: writing to the alpha-mask target.
+    // solidColor=(0,0,0,0) writes alpha=0 naturally — compositor shows image plane.
+    // No state override needed.
+    if (isNonPEPattern)
+        return;
+
+    MHWRender::MStateManager* sm = context.getStateManager();
+    if (!sm) return;
+
+    auto suppressAllWrites = [&]() {
+        MHWRender::MDepthStencilStateDesc ds;
+        ds.setDefaults();
+        ds.depthEnable      = false;
+        ds.depthWriteEnable = false;
+        if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
+
+        MHWRender::MBlendStateDesc bl;
+        bl.targetBlends[0].blendEnable     = false;
+        bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
+        if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
+    };
+
+    if (isHoldoutBKGD) {
+        // HoldoutDrawPass pre-render: image plane is being drawn, we must be invisible.
+        suppressAllWrites();
+        return;
+    }
+
+    if (!isOpaque) {
+        // Shadow, preZ, or any other pass: suppress everything.
+        suppressAllWrites();
+        return;
+    }
+
+    // Opaque beauty pass: write depth to occlude later geometry,
+    // suppress ALL colour/alpha writes (image plane content stays untouched).
+    MHWRender::MRasterizerStateDesc rs;
+    rs.setDefaults();
+    rs.cullMode = MHWRender::MRasterizerState::kCullNone;
+    if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
+
+    MHWRender::MDepthStencilStateDesc ds;
+    ds.depthEnable      = true;
+    ds.depthWriteEnable = true;
+    ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
+    if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
+
+    MHWRender::MBlendStateDesc bl;
+    bl.targetBlends[0].blendEnable     = false;
+    bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
+    if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
+}
+
+static void HoldoutPostDrawCallback(
+    MHWRender::MDrawContext&          context,
+    const MHWRender::MRenderItemList& /*renderItems*/,
+    MHWRender::MShaderInstance* /*shader*/)
+{
+    const MStringArray& semantics = context.getPassContext().passSemantics();
+
+    bool isNonPEPattern = false;
+    bool isOpaque       = false;
+    bool isHoldoutBKGD  = false;
+    for (unsigned int i = 0; i < semantics.length(); ++i) {
+        if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
+            isNonPEPattern = true;
+        else if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
+            isOpaque = true;
+        else if (semantics[i] == "holdOutBKGDGraphSemantic")
+            isHoldoutBKGD = true;
+    }
+
+    if (isNonPEPattern) return; // pre-draw did nothing
+
+    MHWRender::MStateManager* sm = context.getStateManager();
+    if (!sm) return;
+
+    MHWRender::MDepthStencilStateDesc ds;
+    ds.setDefaults();
+    if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
+
+    MHWRender::MBlendStateDesc bl;
+    bl.setDefaults();
+    if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
+
+    if (isOpaque && !isHoldoutBKGD) {
+        MHWRender::MRasterizerStateDesc rs;
+        rs.setDefaults();
+        if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
+    }
+}
 
 //! Returns a boolean of whether or not we want the standardSurface shader fragment graph fallbacks
 bool WantStandardSurfaceFallback()
@@ -228,6 +373,21 @@ public:
             _3dCPVFatPointShader->setParameter(kPointSizeParameterName, size);
         }
 
+        // Holdout shader: k3dSolidShader with solidColor=(0,0,0,0) and context-aware
+        // pre/post-draw callbacks. solidColor alpha=0 is used by the nonPEPatternPass
+        // to write alpha=0 into the alpha-mask target so the compositor shows the
+        // image plane through holdout regions when post-effects are active.
+        // setTreatAsTransparent(false) keeps the item in the opaque draw list regardless
+        // of the shader's alpha output.
+        _holdoutShader = shaderMgr->getStockShader(
+            MHWRender::MShaderManager::k3dSolidShader,
+            HoldoutPreDrawCallback,
+            HoldoutPostDrawCallback);
+        if (TF_VERIFY(_holdoutShader)) {
+            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            _holdoutShader->setParameter(kSolidColorParameterName, color);
+        }
+
         for (size_t i = 0; i < FallbackShaderTypeCount; i++) {
             MHWRender::MShaderInstance* shader
                 = shaderMgr->getFragmentShader(_cpvFallbackShaderNames[i], kStructOutputName, true);
@@ -319,6 +479,10 @@ public:
     /*! \brief  Returns a 3d CPV fat point shader instance.
      */
     MHWRender::MShaderInstance* Get3dCPVFatPointShader() const { return _3dCPVFatPointShader; }
+
+    /*! \brief  Returns the holdout shader instance.
+     */
+    MHWRender::MShaderInstance* GetHoldoutShader() const { return _holdoutShader; }
 
     /*! \brief  Returns a 3d solid shader with the specified color.
      */
@@ -537,6 +701,7 @@ public:
             _3dDefaultMaterialShader = nullptr;
             _3dCPVSolidShader = nullptr;
             _3dCPVFatPointShader = nullptr;
+            _holdoutShader = nullptr;
         }
         _isInitialized = false;
     }
@@ -566,6 +731,7 @@ private:
 
     MHWRender::MShaderInstance* _3dCPVSolidShader { nullptr };    //!< 3d CPV solid-color shader
     MHWRender::MShaderInstance* _3dCPVFatPointShader { nullptr }; //!< 3d CPV fat point shader
+    MHWRender::MShaderInstance* _holdoutShader { nullptr };       //!< Holdout shader
 
     HdVP2ShaderCache _userCache; //!< A thread-safe cache of user generated shaders.
 };
@@ -1187,6 +1353,13 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dCPVFatPointShader() const
 MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColor& color) const
 {
     return sShaderCache.Get3dFatPointShader(color);
+}
+
+/*! \brief  Returns the holdout shader instance.
+ */
+MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
+{
+    return sShaderCache.GetHoldoutShader();
 }
 
 /*! \brief  Returns a sampler state as specified by the description.
