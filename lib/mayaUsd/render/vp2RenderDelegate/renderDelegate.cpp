@@ -891,6 +891,15 @@ void HdVP2RenderDelegate::CommitResources(HdChangeTracker* tracker)
     // holdout render items. This runs on the main thread regardless of whether
     // Hydra called Sync() on those prims, ensuring VP2 never re-consolidates
     // them on frames where nothing in the scene changed (e.g. camera-only animation).
+    {
+        static int sDbgCount = 0;
+        if (sDbgCount < 5) {
+            MString msg("[Holdout] CommitResources running, holdoutRenderItems count: ");
+            msg += (int)_holdoutRenderItems.size();
+            MGlobal::displayWarning(msg);
+            ++sDbgCount;
+        }
+    }
     for (auto* item : _holdoutRenderItems) {
         item->setWantConsolidation(false);
         item->setTreatAsTransparent(false);
@@ -1382,6 +1391,9 @@ void HdVP2RenderDelegate::RegisterHoldoutRenderItem(MHWRender::MRenderItem* item
     auto it = std::find(_holdoutRenderItems.begin(), _holdoutRenderItems.end(), item);
     if (it == _holdoutRenderItems.end()) {
         _holdoutRenderItems.push_back(item);
+        MString msg("[Holdout] RegisterHoldoutRenderItem: total registered = ");
+        msg += (int)_holdoutRenderItems.size();
+        MGlobal::displayWarning(msg);
     }
 }
 
