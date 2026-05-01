@@ -148,7 +148,7 @@ static void HoldoutDepthPreDrawCallback(
     // NO colour channel writes at all — we only want depth.
     MHWRender::MBlendStateDesc blendDesc;
     blendDesc.targetBlends[0].blendEnable     = false;
-    blendDesc.targetBlends[0].targetWriteMask = 0; // write nothing to RGBA
+    blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
     const MHWRender::MBlendState* blendState =
         MHWRender::MStateManager::acquireBlendState(blendDesc);
     if (blendState) stateManager->setBlendState(blendState);
