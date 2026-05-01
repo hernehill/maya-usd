@@ -141,21 +141,21 @@ static void HoldoutPreDrawCallback(
     // Debug: print all pass semantics the first few times this fires.
     {
         static int sDbg = 0;
-        bool isConsolidated = false;
-        if (renderItems.length() > 0) {
-            const MHWRender::MRenderItem* item = renderItems.itemAt(0);
-            isConsolidated = item && item->isConsolidated();
-        }
-        // Always print if consolidated (the failure case), or first 10 times.
-        if (isConsolidated || sDbg < 10) {
+        if (sDbg < 10) {
             MString msg("[Holdout] PreDrawCallback semantics:");
             for (unsigned int i = 0; i < semantics.length(); ++i) {
                 msg += " ";
                 msg += semantics[i];
             }
-            msg += isConsolidated ? "  [*** CONSOLIDATED ***]" : "  [not consolidated]";
+            // Also report consolidation state of the first item.
+            if (renderItems.length() > 0) {
+                const MHWRender::MRenderItem* item = renderItems.itemAt(0);
+                if (item) {
+                    msg += item->isConsolidated() ? "  [CONSOLIDATED]" : "  [not consolidated]";
+                }
+            }
             MGlobal::displayWarning(msg);
-            if (!isConsolidated) ++sDbg;
+            ++sDbg;
         }
     }
 
