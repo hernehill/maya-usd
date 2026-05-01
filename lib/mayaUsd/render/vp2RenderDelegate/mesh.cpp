@@ -2357,13 +2357,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                 renderItem->setTreatAsTransparent(stateToCommit._isTransparent);
             }
 
-            // Holdout items must always be kept in the opaque list.
-            // setGeometryForRenderItem() can cause VP2 to re-evaluate transparency
-            // so we re-assert setTreatAsTransparent(false) every commit.
-            if (isHoldout) {
-                renderItem->setTreatAsTransparent(false);
-            }
-
             // If the enable state is changed, then update it.
             if (stateToCommit._enabled != nullptr) {
                 renderItem->enable(*stateToCommit._enabled);
@@ -2436,6 +2429,12 @@ void HdVP2Mesh::_UpdateDrawItem(
                     TF_WARN(
                         "Could not create OGS geometry for [%s], maybe it has no geometry?",
                         renderItem->name().asChar());
+                }
+
+                // setGeometryForRenderItem() can move the item to the transparent list
+                // by re-evaluating shader transparency. Re-assert opaque for holdout items.
+                if (isHoldout) {
+                    renderItem->setTreatAsTransparent(false);
                 }
             }
 
