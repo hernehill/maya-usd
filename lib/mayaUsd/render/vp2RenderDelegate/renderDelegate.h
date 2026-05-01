@@ -149,6 +149,7 @@ public:
     GetBasisCurvesCPVShader(const TfToken& curveType, const TfToken& curveBasis) const;
 
     MHWRender::MShaderInstance* GetHoldoutShader() const;
+    MHWRender::MShaderInstance* GetHoldoutAlphaShader() const;
 
     MHWRender::MShaderInstance* GetShaderFromCache(const TfToken& id);
     bool AddShaderToCache(const TfToken& id, const MHWRender::MShaderInstance& shader);

@@ -233,6 +233,9 @@ private:
     //! than once for the whole shader-sharing group.
     std::vector<MHWRender::MShaderInstance*> _holdoutShaderClones;
 
+    //! Per-render-item holdout alpha-punch-through shader clones (one per alpha item).
+    std::vector<MHWRender::MShaderInstance*> _holdoutAlphaShaderClones;
+
     static size_t _gpuNormalsComputeThreshold;
 };
 

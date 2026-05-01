@@ -407,16 +407,17 @@ HdVP2Mesh::HdVP2Mesh(HdVP2RenderDelegate* delegate, const SdfPath& id, const Sdf
 HdVP2Mesh::~HdVP2Mesh()
 {
     // Release per-item holdout shader clones.
-    if (!_holdoutShaderClones.empty()) {
-        MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
-        const MHWRender::MShaderManager* shaderMgr
-            = renderer ? renderer->getShaderManager() : nullptr;
-        if (shaderMgr) {
-            for (auto* clone : _holdoutShaderClones)
-                shaderMgr->releaseShader(clone);
-        }
-        _holdoutShaderClones.clear();
+    MHWRender::MRenderer* renderer = MHWRender::MRenderer::theRenderer();
+    const MHWRender::MShaderManager* shaderMgr
+        = renderer ? renderer->getShaderManager() : nullptr;
+    if (shaderMgr) {
+        for (auto* clone : _holdoutShaderClones)
+            shaderMgr->releaseShader(clone);
+        for (auto* clone : _holdoutAlphaShaderClones)
+            shaderMgr->releaseShader(clone);
     }
+    _holdoutShaderClones.clear();
+    _holdoutAlphaShaderClones.clear();
 }
 
 void HdVP2Mesh::_PrepareSharedVertexBuffers(
@@ -928,8 +929,11 @@ void HdVP2Mesh::Sync(
                 if (shaderMgr) {
                     for (auto* clone : _holdoutShaderClones)
                         shaderMgr->releaseShader(clone);
+                    for (auto* clone : _holdoutAlphaShaderClones)
+                        shaderMgr->releaseShader(clone);
                 }
                 _holdoutShaderClones.clear();
+                _holdoutAlphaShaderClones.clear();
 
             }
         }
@@ -1827,21 +1831,36 @@ void HdVP2Mesh::_UpdateDrawItem(
         // to stateToCommit when the shader has actually changed — avoiding a
         // redundant setShader() commit on every frame for steady-state holdouts.
         if (_isHoldout) {
-            MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
+            // Determine whether this is the depth item or the alpha-punch-through item.
+            // Alpha items have a name ending with ";holdoutAlpha".
+            const bool isHoldoutAlphaItem = [renderItem]() {
+                MString name = renderItem->name();
+                const char* suffix = ";holdoutAlpha";
+                const unsigned int suffixLen = (unsigned int)strlen(suffix);
+                if (name.length() < suffixLen) return false;
+                return strncmp(
+                    name.asChar() + name.length() - suffixLen,
+                    suffix, suffixLen) == 0;
+            }();
+
+            MHWRender::MShaderInstance* holdoutShader = isHoldoutAlphaItem
+                ? _delegate->GetHoldoutAlphaShader()
+                : _delegate->GetHoldoutShader();
+
             if (holdoutShader) {
                 drawItemData._shaderIsFallback = false;
                 // Each holdout render item needs its own cloned MShaderInstance so VP2
-                // fires pre/post-draw callbacks independently per item. If items share one
-                // shader instance VP2 fires callbacks only once for the group, so only the
-                // first item would write alpha=0. Create the clone once (identified by the
-                // presence of a preDrawCallback on the stored shader).
+                // fires pre/post-draw callbacks independently per item.
+                auto& cloneVec = isHoldoutAlphaItem
+                    ? _holdoutAlphaShaderClones
+                    : _holdoutShaderClones;
                 bool alreadyHoldoutShader = drawItemData._shader
                     && drawItemData._shader->preDrawCallback() != nullptr;
                 if (!alreadyHoldoutShader) {
                     MHWRender::MShaderInstance* clone = holdoutShader->clone();
-                    if (!clone) clone = holdoutShader; // fallback to shared if clone fails
+                    if (!clone) clone = holdoutShader; // fallback if clone fails
                     if (clone != holdoutShader) {
-                        _holdoutShaderClones.push_back(clone);
+                        cloneVec.push_back(clone);
                     }
                     drawItemData._shader         = clone;
                     stateToCommit._shader        = clone;
@@ -2317,6 +2336,16 @@ void HdVP2Mesh::_UpdateDrawItem(
     // no stale render items then stateToCommit can be empty!
     if (!stateToCommit.Empty()) {
         const bool isHoldout = _isHoldout;
+        // Detect alpha-punch-through items by name suffix.
+        const bool isHoldoutAlphaItem = isHoldout && [renderItem]() {
+            MString name = renderItem->name();
+            const char* suffix = ";holdoutAlpha";
+            const unsigned int suffixLen = (unsigned int)strlen(suffix);
+            if (name.length() < suffixLen) return false;
+            return strncmp(
+                name.asChar() + name.length() - suffixLen,
+                suffix, suffixLen) == 0;
+        }();
         _delegate->GetVP2ResourceRegistry().EnqueueCommit([stateToCommit,
                                                            param,
                                                            primvarInfo,
@@ -2324,6 +2353,7 @@ void HdVP2Mesh::_UpdateDrawItem(
                                                            indexBuffer,
                                                            isBBoxItem,
                                                            isHoldout,
+                                                           isHoldoutAlphaItem,
                                                            &sharedBBoxGeom]() {
             // This code executes serially, once per mesh updated. Keep
             // performance in mind while modifying this code.
@@ -2358,6 +2388,14 @@ void HdVP2Mesh::_UpdateDrawItem(
                 // ever classifies them as transparent their pre-draw callback won't
                 // fire and neither depth nor alpha=0 will be written.
                 renderItem->setTreatAsTransparent(false);
+
+                if (isHoldoutAlphaItem) {
+                    // The alpha item must draw after all other opaques so nothing
+                    // can overwrite alpha=0. setDrawLast() moves it to the end of
+                    // the opaque pass. Because depth is disabled in the callback,
+                    // the missing depth attachment on the drawLast target is safe.
+                    renderItem->setDrawLast(true);
+                }
             }
 
             // TODO: this is now including all buffers for the requirements of all
@@ -2429,8 +2467,8 @@ void HdVP2Mesh::_UpdateDrawItem(
             }
 
 
-            // For holdout items, disable consolidation AFTER geometry submission.
-            // setGeometryForRenderItem triggers VP2's consolidation re-evaluation,
+            // For holdout items (both depth and alpha), disable consolidation AFTER geometry
+            // submission. setGeometryForRenderItem triggers VP2's consolidation re-evaluation,
             // so setWantConsolidation(false) must come after it to be guaranteed
             // to take effect before the next draw.
             if (isHoldout) {
@@ -2885,7 +2923,46 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
             renderItem->setTreatAsTransparent(false);
         };
     }
-    return _AddRenderItem(drawItem, renderItem, subSceneContainer, geomSubset, holdoutPostAdd);
+    HdVP2DrawItem::RenderItemData& depthItemData
+        = _AddRenderItem(drawItem, renderItem, subSceneContainer, geomSubset, holdoutPostAdd);
+
+    if (_isHoldout) {
+        // --- Create the alpha-punch-through render item ---
+        // This item draws LAST (after all other opaques) and writes only alpha=0.
+        // It has no depth test/write so it is safe on the drawLast render target
+        // that may lack a depth attachment.
+        MString alphaItemName = itemName;
+        alphaItemName += std::string(1, VP2_RENDER_DELEGATE_SEPARATOR).c_str();
+        alphaItemName += "holdoutAlpha";
+
+        MHWRender::MRenderItem* const alphaItem = MHWRender::MRenderItem::Create(
+            alphaItemName,
+            MHWRender::MRenderItem::MaterialSceneItem,
+            MHWRender::MGeometry::kTriangles);
+
+        alphaItem->setDrawMode(drawMode);
+        alphaItem->setExcludedFromPostEffects(true);
+        alphaItem->castsShadows(false);
+        alphaItem->receivesShadows(false);
+        alphaItem->setShader(_delegate->GetHoldoutAlphaShader());
+        _InitRenderItemCommon(alphaItem);
+        MayaUsdRPrim::_SetWantConsolidation(*alphaItem, false);
+
+        alphaItem->setSelectionMask(MSelectionMask()); // not selectable
+        alphaItem->setObjectTypeExclusionFlag(MHWRender::MFrameContext::kExcludeMeshes);
+#ifdef HAS_DEFAULT_MATERIAL_SUPPORT_API
+        alphaItem->setDefaultMaterialHandling(MRenderItem::SkipWhenDefaultMaterialActive);
+#endif
+
+        auto alphaPostAdd = [alphaItem]() {
+            MayaUsdRPrim::_SetWantConsolidation(*alphaItem, false);
+            alphaItem->setTreatAsTransparent(false);
+            alphaItem->setDrawLast(true);
+        };
+        _AddRenderItem(drawItem, alphaItem, subSceneContainer, geomSubset, alphaPostAdd);
+    }
+
+    return depthItemData;
 }
 
 /*! \brief  Create render item to support selection highlight for smoothHull repr.

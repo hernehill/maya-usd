@@ -94,23 +94,33 @@ const MString kPointSizeParameterName = "pointSize";       //!< Shader parameter
 const MString kCurveBasisParameterName = "curveBasis";     //!< Shader parameter name
 const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of the fallback shader
 
-// Pre-draw callback for holdout shader.
+// ---------------------------------------------------------------------------
+// Dual render-item holdout strategy
+// ---------------------------------------------------------------------------
+// We split the holdout prim into two render items:
 //
-// Our render items live inside MayaShadedBeauty's opaque list, which runs
-// AFTER HoldOutPasses has already completed. We cannot inject into the
-// holdOutList (that requires native Maya DAG objects with holdOut=true).
+// ITEM 1 — "depth item" (draws in normal opaque order, setDrawLast=false):
+//   Pre-draw:  depth write ON (kCompareLessEqual), NO colour write at all
+//              (targetWriteMask = 0), cull-none.
+//   Purpose:   Occludes geometry behind the holdout by writing depth values.
+//              Nothing is written to the colour/alpha buffer.
 //
-// What we can do from inside the opaque pass:
-//   1. Write depth so our holdout geometry occludes later-drawn 3D objects.
-//   2. Write alpha=0 to the alpha channel of the colour buffer. The final
-//      compositor (mayaNonPECompositeScript / maya_CompositeWithAlphaMask)
-//      uses the alpha channel to blend the image plane. alpha=0 means
-//      "fully transparent" -> image plane shows through.
-//   3. Do NOT write RGB — leave it as-is so we don't paint anything.
+// ITEM 2 — "alpha item" (draws LAST, setDrawLast=true):
+//   Pre-draw:  depth test OFF, depth write OFF, alpha-only write
+//              (targetWriteMask = kAlphaChannel), shader output alpha=0.
+//   Purpose:   After all opaque items have drawn, stamps alpha=0 into the
+//              colour buffer unconditionally.  Because setDrawLast puts this
+//              item onto a render target that may lack a depth attachment,
+//              we purposely disable depth so the missing buffer is harmless.
 //
-// Blend equation with shader output (0,0,0,0) and WriteMask=AlphaOnly:
-//   No blending needed; we simply write src.a = 0 to dst.a.
-static void HoldoutPreDrawCallback(
+// The compositor (maya_CompositeWithAlphaMask) reads alpha=0 as "fully
+// transparent here -> show the image plane through".
+// ---------------------------------------------------------------------------
+
+// --- Depth item callbacks ---------------------------------------------------
+
+// Pre-draw: write depth only, no colour at all.
+static void HoldoutDepthPreDrawCallback(
     MHWRender::MDrawContext& context,
     const MHWRender::MRenderItemList& /*renderItems*/,
     MHWRender::MShaderInstance* /*shader*/)
@@ -118,7 +128,7 @@ static void HoldoutPreDrawCallback(
     MHWRender::MStateManager* stateManager = context.getStateManager();
     if (!stateManager) return;
 
-    // Disable backface culling so holdout works regardless of mesh winding order.
+    // Disable backface culling so holdout works regardless of winding order.
     MHWRender::MRasterizerStateDesc rastDesc;
     rastDesc.setDefaults();
     rastDesc.cullMode = MHWRender::MRasterizerState::kCullNone;
@@ -126,7 +136,7 @@ static void HoldoutPreDrawCallback(
         MHWRender::MStateManager::acquireRasterizerState(rastDesc);
     if (rastState) stateManager->setRasterizerState(rastState);
 
-    // Write depth so the holdout occludes other 3D geometry drawn later.
+    // Depth write ON — this is the whole purpose of this item.
     MHWRender::MDepthStencilStateDesc depthDesc;
     depthDesc.depthEnable      = true;
     depthDesc.depthWriteEnable = true;
@@ -135,19 +145,84 @@ static void HoldoutPreDrawCallback(
         MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
     if (depthState) stateManager->setDepthStencilState(depthState);
 
-    // Write alpha=0 only. The compositor reads alpha to determine where
-    // the image plane should show through. alpha=0 -> image plane visible.
-    // Blending off; direct write of src.a (=0 from our shader) to dst.a.
+    // NO colour channel writes at all — we only want depth.
+    MHWRender::MBlendStateDesc blendDesc;
+    blendDesc.targetBlends[0].blendEnable     = false;
+    blendDesc.targetBlends[0].targetWriteMask = 0; // write nothing to RGBA
+    const MHWRender::MBlendState* blendState =
+        MHWRender::MStateManager::acquireBlendState(blendDesc);
+    if (blendState) stateManager->setBlendState(blendState);
+}
+
+// Post-draw: restore defaults.
+static void HoldoutDepthPostDrawCallback(
+    MHWRender::MDrawContext& context,
+    const MHWRender::MRenderItemList& /*renderItems*/,
+    MHWRender::MShaderInstance* /*shader*/)
+{
+    MHWRender::MStateManager* stateManager = context.getStateManager();
+    if (!stateManager) return;
+
+    MHWRender::MDepthStencilStateDesc depthDesc;
+    depthDesc.setDefaults();
+    const MHWRender::MDepthStencilState* depthState =
+        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
+    if (depthState) stateManager->setDepthStencilState(depthState);
+
+    MHWRender::MBlendStateDesc blendDesc;
+    blendDesc.setDefaults();
+    const MHWRender::MBlendState* blendState =
+        MHWRender::MStateManager::acquireBlendState(blendDesc);
+    if (blendState) stateManager->setBlendState(blendState);
+
+    MHWRender::MRasterizerStateDesc rastDesc;
+    rastDesc.setDefaults();
+    const MHWRender::MRasterizerState* rastState =
+        MHWRender::MStateManager::acquireRasterizerState(rastDesc);
+    if (rastState) stateManager->setRasterizerState(rastState);
+}
+
+// --- Alpha-punch-through item callbacks -------------------------------------
+
+// Pre-draw: depth OFF (safe on drawLast target that may lack depth buffer),
+//           write alpha=0 only — nothing else.
+static void HoldoutAlphaPreDrawCallback(
+    MHWRender::MDrawContext& context,
+    const MHWRender::MRenderItemList& /*renderItems*/,
+    MHWRender::MShaderInstance* /*shader*/)
+{
+    MHWRender::MStateManager* stateManager = context.getStateManager();
+    if (!stateManager) return;
+
+    // No depth test, no depth write — the drawLast target may have no depth buffer.
+    MHWRender::MDepthStencilStateDesc depthDesc;
+    depthDesc.setDefaults();
+    depthDesc.depthEnable      = false;
+    depthDesc.depthWriteEnable = false;
+    const MHWRender::MDepthStencilState* depthState =
+        MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
+    if (depthState) stateManager->setDepthStencilState(depthState);
+
+    // Write alpha=0 only. Shader output alpha=0 (solidColor.a=0), blending off
+    // -> src.a is written directly to dst.a.
     MHWRender::MBlendStateDesc blendDesc;
     blendDesc.targetBlends[0].blendEnable     = false;
     blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kAlphaChannel;
     const MHWRender::MBlendState* blendState =
         MHWRender::MStateManager::acquireBlendState(blendDesc);
     if (blendState) stateManager->setBlendState(blendState);
+
+    // Cull-none for consistency.
+    MHWRender::MRasterizerStateDesc rastDesc;
+    rastDesc.setDefaults();
+    rastDesc.cullMode = MHWRender::MRasterizerState::kCullNone;
+    const MHWRender::MRasterizerState* rastState =
+        MHWRender::MStateManager::acquireRasterizerState(rastDesc);
+    if (rastState) stateManager->setRasterizerState(rastState);
 }
 
-// Post-draw callback: restore default depth and blend states.
-static void HoldoutPostDrawCallback(
+// Post-draw: restore defaults.
+static void HoldoutAlphaPostDrawCallback(
     MHWRender::MDrawContext& context,
     const MHWRender::MRenderItemList& /*renderItems*/,
     MHWRender::MShaderInstance* /*shader*/)
@@ -309,19 +384,28 @@ public:
             _3dCPVFatPointShader->setParameter(kPointSizeParameterName, size);
         }
 
-        // Holdout shader: depth-only pass via pre/post draw callbacks.
-        // Initialized once here on the main thread to avoid threading issues.
+        // Holdout depth shader: writes depth only, no colour output.
+        // solidColor alpha=1 keeps VP2 from classifying the item as transparent.
+        // The pre-draw callback sets targetWriteMask=0 so nothing reaches the framebuffer.
         _holdoutShader = shaderMgr->getStockShader(
             MHWRender::MShaderManager::k3dSolidShader,
-            HoldoutPreDrawCallback,
-            HoldoutPostDrawCallback);
+            HoldoutDepthPreDrawCallback,
+            HoldoutDepthPostDrawCallback);
         if (TF_VERIFY(_holdoutShader)) {
-            // Alpha must be 1.0 so VP2 classifies this as opaque and keeps it in
-            // the opaque draw list. The pre-draw callback sets targetWriteMask to
-            // kAlphaChannel so the shader's RGB and alpha never actually reach the
-            // framebuffer — only what the callback writes (alpha=0) does.
             const float color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
             _holdoutShader->setParameter(kSolidColorParameterName, color);
+        }
+
+        // Holdout alpha shader: writes alpha=0 only (no depth, no RGB).
+        // Used by the "drawLast" alpha-punch-through render item.
+        // solidColor alpha=0 is what the callback writes to dst.a.
+        _holdoutAlphaShader = shaderMgr->getStockShader(
+            MHWRender::MShaderManager::k3dSolidShader,
+            HoldoutAlphaPreDrawCallback,
+            HoldoutAlphaPostDrawCallback);
+        if (TF_VERIFY(_holdoutAlphaShader)) {
+            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            _holdoutAlphaShader->setParameter(kSolidColorParameterName, color);
         }
 
         for (size_t i = 0; i < FallbackShaderTypeCount; i++) {
@@ -416,9 +500,13 @@ public:
      */
     MHWRender::MShaderInstance* Get3dCPVFatPointShader() const { return _3dCPVFatPointShader; }
 
-    /*! \brief  Returns a holdout shader instance.
+    /*! \brief  Returns a holdout depth shader instance.
      */
     MHWRender::MShaderInstance* GetHoldoutShader() const { return _holdoutShader; }
+
+    /*! \brief  Returns a holdout alpha-punch-through shader instance.
+     */
+    MHWRender::MShaderInstance* GetHoldoutAlphaShader() const { return _holdoutAlphaShader; }
 
     /*! \brief  Returns a 3d solid shader with the specified color.
      */
@@ -638,6 +726,7 @@ public:
             _3dCPVSolidShader = nullptr;
             _3dCPVFatPointShader = nullptr;
             _holdoutShader = nullptr;
+            _holdoutAlphaShader = nullptr;
         }
         _isInitialized = false;
     }
@@ -667,7 +756,8 @@ private:
 
     MHWRender::MShaderInstance* _3dCPVSolidShader { nullptr };    //!< 3d CPV solid-color shader
     MHWRender::MShaderInstance* _3dCPVFatPointShader { nullptr }; //!< 3d CPV fat point shader
-    MHWRender::MShaderInstance* _holdoutShader { nullptr };       //!< Holdout depth-only shader
+    MHWRender::MShaderInstance* _holdoutShader { nullptr };      //!< Holdout depth-only shader
+    MHWRender::MShaderInstance* _holdoutAlphaShader { nullptr }; //!< Holdout alpha-punch-through shader
 
     HdVP2ShaderCache _userCache; //!< A thread-safe cache of user generated shaders.
 };
@@ -1294,6 +1384,11 @@ MHWRender::MShaderInstance* HdVP2RenderDelegate::Get3dFatPointShader(const MColo
 MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutShader() const
 {
     return sShaderCache.GetHoldoutShader();
+}
+
+MHWRender::MShaderInstance* HdVP2RenderDelegate::GetHoldoutAlphaShader() const
+{
+    return sShaderCache.GetHoldoutAlphaShader();
 }
 
 /*! \brief  Returns a sampler state as specified by the description.
