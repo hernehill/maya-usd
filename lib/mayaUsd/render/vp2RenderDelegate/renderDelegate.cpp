@@ -119,7 +119,11 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of 
 
 // --- Depth item callbacks ---------------------------------------------------
 
-// Pre-draw: write depth only, no colour at all.
+// Pre-draw: write depth only; alpha=0 from the shader (solidColor.a=0) will
+// reach both the opaque beauty buffer and the nonPEAlphaMask target.
+// We do NOT suppress colour writes here — the shader's (0,0,0,0) output is
+// intentional: alpha=0 in the nonPEPatternPass tells the compositor to show
+// the image plane through the holdout region.
 static void HoldoutDepthPreDrawCallback(
     MHWRender::MDrawContext& context,
     const MHWRender::MRenderItemList& /*renderItems*/,
@@ -136,7 +140,7 @@ static void HoldoutDepthPreDrawCallback(
         MHWRender::MStateManager::acquireRasterizerState(rastDesc);
     if (rastState) stateManager->setRasterizerState(rastState);
 
-    // Depth write ON — this is the whole purpose of this item.
+    // Depth write ON — so this item occludes geometry drawn later.
     MHWRender::MDepthStencilStateDesc depthDesc;
     depthDesc.depthEnable      = true;
     depthDesc.depthWriteEnable = true;
@@ -144,14 +148,8 @@ static void HoldoutDepthPreDrawCallback(
     const MHWRender::MDepthStencilState* depthState =
         MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
     if (depthState) stateManager->setDepthStencilState(depthState);
-
-    // NO colour channel writes at all — we only want depth.
-    MHWRender::MBlendStateDesc blendDesc;
-    blendDesc.targetBlends[0].blendEnable     = false;
-    blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
-    const MHWRender::MBlendState* blendState =
-        MHWRender::MStateManager::acquireBlendState(blendDesc);
-    if (blendState) stateManager->setBlendState(blendState);
+    // Colour/alpha writes use the default state — solidColor=(0,0,0,0) writes
+    // alpha=0 which is what the nonPEPatternPass needs for the compositor.
 }
 
 // Post-draw: restore defaults.
@@ -384,15 +382,19 @@ public:
             _3dCPVFatPointShader->setParameter(kPointSizeParameterName, size);
         }
 
-        // Holdout depth shader: writes depth only, no colour output.
-        // solidColor alpha=1 keeps VP2 from classifying the item as transparent.
-        // The pre-draw callback sets targetWriteMask=0 so nothing reaches the framebuffer.
+        // Holdout depth shader: writes depth only (no colour), and outputs alpha=0
+        // so that when rendered into the nonPEAlphaMask target the compositor knows
+        // to show the image plane through the holdout region.
+        // solidColor alpha=0: outputs alpha=0 in the nonPEPatternPass (alpha mask),
+        // so compositor treats those pixels as "show image plane here".
+        // setTreatAsTransparent(false) keeps the item in the opaque draw list
+        // regardless of what alpha the shader outputs.
         _holdoutShader = shaderMgr->getStockShader(
             MHWRender::MShaderManager::k3dSolidShader,
             HoldoutDepthPreDrawCallback,
             HoldoutDepthPostDrawCallback);
         if (TF_VERIFY(_holdoutShader)) {
-            const float color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
             _holdoutShader->setParameter(kSolidColorParameterName, color);
         }
 
