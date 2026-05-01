@@ -1895,8 +1895,9 @@ void HdVP2Mesh::_UpdateDrawItem(
             }
         }
 
-        bool useFallbackMaterial
-            = drawItemData._shaderIsFallback && _PrimvarIsRequired(HdTokens->displayColor);
+        bool useFallbackMaterial = !_isHoldout
+            && drawItemData._shaderIsFallback
+            && _PrimvarIsRequired(HdTokens->displayColor);
         bool updateFallbackMaterial = useFallbackMaterial && drawItemData._fallbackColorDirty;
 
         // Use fallback shader if there is no material binding or we failed to create a shader
