@@ -2530,6 +2530,8 @@ void HdVP2Mesh::_UpdateDrawItem(
     // the lambda commit was never created.
     if (_isHoldout) {
         _delegate->GetVP2ResourceRegistry().EnqueueCommit([renderItem]() {
+            // renderItem->setExcludedFromPostEffects(true);
+            renderItem->setTreatAsTransparent(false);
             renderItem->setWantConsolidation(false);
         });
     }
@@ -2859,7 +2861,7 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
     // on each item independently. This must be done after _InitRenderItemCommon since
     // it always set to true.
     if (_isHoldout) {
-        renderItem->setExcludedFromPostEffects(true);
+        // renderItem->setExcludedFromPostEffects(true);
         renderItem->castsShadows(false);
         renderItem->receivesShadows(false);
         renderItem->setTreatAsTransparent(false);
