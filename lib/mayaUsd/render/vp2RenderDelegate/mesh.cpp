@@ -2878,7 +2878,14 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
     renderItem->setDefaultMaterialHandling(MRenderItem::SkipWhenDefaultMaterialActive);
 #endif
 
-    return _AddRenderItem(drawItem, renderItem, subSceneContainer, geomSubset);
+    std::function<void()> holdoutPostAdd;
+    if (_isHoldout) {
+        holdoutPostAdd = [renderItem]() {
+            MayaUsdRPrim::_SetWantConsolidation(*renderItem, false);
+            renderItem->setTreatAsTransparent(false);
+        };
+    }
+    return _AddRenderItem(drawItem, renderItem, subSceneContainer, geomSubset, holdoutPostAdd);
 }
 
 /*! \brief  Create render item to support selection highlight for smoothHull repr.

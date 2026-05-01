@@ -107,9 +107,7 @@ bool MayaUsdRPrim::_IsHoldout(const SdfPath& id) const
     auto* const          param = static_cast<HdVP2RenderParam*>(_delegate->GetRenderParam());
     ProxyRenderDelegate& drawScene = param->GetDrawScene();
     UsdImagingDelegate*  usdDelegate = drawScene.GetUsdImagingDelegate();
-    if (!usdDelegate) {
-        return false;
-    }
+    if (!usdDelegate) return false;
 
     // UsdImagingDelegate::Get() accepts the primvar name directly (without "primvars:" prefix)
     VtValue val = usdDelegate->Get(id, TfToken("maya:holdout"));
@@ -472,10 +470,14 @@ HdVP2DrawItem::RenderItemData& MayaUsdRPrim::_AddRenderItem(
     HdVP2DrawItem&          drawItem,
     MHWRender::MRenderItem* renderItem,
     MSubSceneContainer&     subSceneContainer,
-    const HdGeomSubset*     geomSubset) const
+    const HdGeomSubset*     geomSubset,
+    std::function<void()>   postAddCallback) const
 {
     _delegate->GetVP2ResourceRegistry().EnqueueCommit(
-        [&subSceneContainer, renderItem]() { subSceneContainer.add(renderItem); });
+        [&subSceneContainer, renderItem, postAddCallback]() {
+            subSceneContainer.add(renderItem);
+            if (postAddCallback) postAddCallback();
+        });
 
     auto& renderItemData = drawItem.AddRenderItem(renderItem, geomSubset);
 

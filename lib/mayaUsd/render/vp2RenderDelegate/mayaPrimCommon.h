@@ -351,7 +351,8 @@ protected:
         HdVP2DrawItem&          drawItem,
         MHWRender::MRenderItem* renderItem,
         MSubSceneContainer&     subSceneContainer,
-        const HdGeomSubset*     geomSubset = nullptr) const;
+        const HdGeomSubset*     geomSubset = nullptr,
+        std::function<void()>   postAddCallback = nullptr) const;
 
     MHWRender::MRenderItem* _CreateWireframeRenderItem(
         const MString&        name,
