@@ -907,26 +907,15 @@ void HdVP2Mesh::Sync(
     }
 
 
-    // Detect changes to the maya:holdout primvar every sync.
-    // On transition, mark DirtyMaterialId so _UpdateDrawItem re-evaluates
-    // the shader assignment and registers/unregisters holdout render items.
+    // Detect changes to holdout items every sync.
+    // If it's not holdout, we release the shaders.
+    // If it is holdout (not just in transitions), we dirty materials.
     {
         const bool newHoldout = _IsHoldout(id);
         if (newHoldout != _isHoldout) {
             _isHoldout = newHoldout;
-            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
-            RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& d) {
-                d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
-            };
-            _ForEachRenderItem(_reprs, markMaterialDirty);
-
             if (!_isHoldout) {
-                // Unregister all render items belonging to this prim and release shader clones.
-                RenderItemFunc unregisterItems = [this](HdVP2DrawItem::RenderItemData& d) {
-                    _delegate->UnregisterHoldoutRenderItem(d._renderItem);
-                };
-                _ForEachRenderItem(_reprs, unregisterItems);
-
+                // Release shader clones when holdout is turned off.
                 MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
                 const MHWRender::MShaderManager* shaderMgr
                     = renderer ? renderer->getShaderManager() : nullptr;
@@ -936,6 +925,17 @@ void HdVP2Mesh::Sync(
                 }
                 _holdoutShaderClones.clear();
             }
+        }
+
+        // For holdout items, force a dirty bit every frame so _UpdateDrawItem
+        // always runs, ensuring setWantConsolidation(false) is enqueued every
+        // frame via the commit queue — even on frames with no scene changes.
+        if (_isHoldout) {
+            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
+            RenderItemFunc markDirty = [](HdVP2DrawItem::RenderItemData& d) {
+                d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
+            };
+            _ForEachRenderItem(_reprs, markDirty);
         }
     }
 
@@ -1843,10 +1843,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                         _holdoutShaderClones.push_back(clone);
                         drawItemData._shader  = clone;
                         stateToCommit._shader = clone;
-                        // Register this render item for per-frame consolidation
-                        // suppression in CommitResources(), which runs every frame
-                        // on the main thread regardless of Hydra sync activity.
-                        _delegate->RegisterHoldoutRenderItem(renderItem);
                     }
                 }
                 // This will be used later inside the Commit lambda for
