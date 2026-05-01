@@ -97,6 +97,10 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of 
 // ---------------------------------------------------------------------------
 // Holdout shader callbacks
 //
+// NOTE: These conclusions came after analizing contents of XML files inside
+// the bin/ScriptFragment directory of Maya's installation. It would be nice
+// if this could be confirmed by Autodesk developers.
+//
 // How Maya's holdout pipeline works:
 //
 // 1. HoldoutDrawPass (semantic: holdOutBKGDGraphSemantic) pre-renders the full
@@ -128,7 +132,7 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of 
 // ---------------------------------------------------------------------------
 
 static void HoldoutPreDrawCallback(
-    MHWRender::MDrawContext&          context,
+    MHWRender::MDrawContext& context,
     const MHWRender::MRenderItemList& /*renderItems*/,
     MHWRender::MShaderInstance* /*shader*/)
 {
@@ -149,8 +153,7 @@ static void HoldoutPreDrawCallback(
     // nonPEPatternPass: writing to the alpha-mask target.
     // solidColor=(0,0,0,0) writes alpha=0 naturally — compositor shows image plane.
     // No state override needed.
-    if (isNonPEPattern)
-        return;
+    if (isNonPEPattern) return;
 
     MHWRender::MStateManager* sm = context.getStateManager();
     if (!sm) return;
@@ -184,7 +187,7 @@ static void HoldoutPreDrawCallback(
     // suppress ALL colour/alpha writes (image plane content stays untouched).
     MHWRender::MRasterizerStateDesc rs;
     rs.setDefaults();
-    rs.cullMode = MHWRender::MRasterizerState::kCullNone;
+    rs.cullMode = MHWRender::MRasterizerState::kCullNone; // helps with right/leftHanded meshes
     if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
 
     MHWRender::MDepthStencilStateDesc ds;
@@ -200,7 +203,7 @@ static void HoldoutPreDrawCallback(
 }
 
 static void HoldoutPostDrawCallback(
-    MHWRender::MDrawContext&          context,
+    MHWRender::MDrawContext& context,
     const MHWRender::MRenderItemList& /*renderItems*/,
     MHWRender::MShaderInstance* /*shader*/)
 {

@@ -912,6 +912,7 @@ void HdVP2Mesh::Sync(
     {
         const bool newHoldout = _IsHoldout(id);
         if (newHoldout != _isHoldout) {
+            // We are transitioning (true -> false or vice-versa)
             _isHoldout = newHoldout;
             *dirtyBits |= HdChangeTracker::DirtyMaterialId;
             RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& d) {
@@ -1819,9 +1820,9 @@ void HdVP2Mesh::_UpdateDrawItem(
         && desc.shadingTerminal == HdMeshReprDescTokens->surfaceShader) {
         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
 
-        // Holdout: when this prim has maya:holdout=true, override with the holdout shader
-        // regardless of material binding. Each render item needs its own clone of the shared
-        // holdout shader so VP2 fires pre/post-draw callbacks independently per item.
+        // Holdout: override with the holdout shader regardless of material binding.
+        // Each render item needs its own clone of the shared holdout shader so VP2
+        // fires pre/post-draw callbacks independently per item.
         if (_isHoldout) {
             if (dirtyMaterialId) {
                 MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
@@ -1835,10 +1836,18 @@ void HdVP2Mesh::_UpdateDrawItem(
                         MHWRender::MShaderInstance* clone = holdoutShader->clone();
                         if (clone) {
                             _holdoutShaderClones.push_back(clone);
-                            drawItemData._shader = clone;
+                            drawItemData._shader  = clone;
                             stateToCommit._shader = clone;
                         }
                     }
+                    // This will be used later inside the Commit lambda for
+                    // setTreatAsTransparent. It will serve 2 purposes:
+                    // 1. keep the renderItem in the opaqueList
+                    // 2. VP2 will use the setTreatAsTransparent override value and
+                    //      ignore the result of isTransparent() check on the shader.
+                    //      Since our holdout shader has alpha=0, it would return
+                    //      true for isTransparent() and VP2 would remove the item
+                    //      from the opaqueList.
                     stateToCommit._isTransparent = false;
                 }
             }
@@ -2308,6 +2317,7 @@ void HdVP2Mesh::_UpdateDrawItem(
     // no stale render items then stateToCommit can be empty!
     if (!stateToCommit.Empty()) {
         const bool isHoldout = _isHoldout;
+
         _delegate->GetVP2ResourceRegistry().EnqueueCommit([stateToCommit,
                                                            param,
                                                            primvarInfo,

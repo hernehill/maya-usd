@@ -371,8 +371,11 @@ protected:
         MUint64               exclusionFlag) const;
 #endif
 
-    //! Returns true if the prim has the maya:holdout primvar set to true.
+    //! Returns true if the prim is flagged to be holdout
     bool _IsHoldout(const SdfPath& id) const;
+
+    //! Whether this prim was flagged to be holdout
+    bool _isHoldout { false };
 
     virtual TfToken& _RenderTag() = 0;
 
@@ -413,9 +416,6 @@ protected:
 
     //! For instanced prim, holds the corresponding path in USD prototype
     InstancePrototypePath _pathInPrototype { SdfPath(), kNativeInstancing };
-
-    //! Whether this prim has the maya:holdout primvar set to true.
-    bool _isHoldout { false };
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE
