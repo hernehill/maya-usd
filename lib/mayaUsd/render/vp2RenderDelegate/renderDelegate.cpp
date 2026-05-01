@@ -138,20 +138,6 @@ static void HoldoutPreDrawCallback(
 {
     const MStringArray& semantics = context.getPassContext().passSemantics();
 
-    // Debug: print all pass semantics the first few times this fires.
-    {
-        static int sDbg = 0;
-        if (sDbg < 10) {
-            MString msg("[Holdout] PreDrawCallback semantics:");
-            for (unsigned int i = 0; i < semantics.length(); ++i) {
-                msg += " ";
-                msg += semantics[i];
-            }
-            MGlobal::displayWarning(msg);
-            ++sDbg;
-        }
-    }
-
     bool isOpaque       = false;
     bool isNonPEPattern = false;
     bool isHoldoutBKGD  = false;
