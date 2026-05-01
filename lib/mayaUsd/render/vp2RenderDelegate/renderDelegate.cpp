@@ -121,22 +121,27 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of 
 
 // Pre-draw: context-aware callback for the holdout depth item.
 //
-// This item participates in two passes:
+// This item participates in multiple passes. We need different behavior per pass:
 //
-// 1. Opaque beauty pass (kOpaqueGeometrySemantic):
-//    - Depth write ON  -> occludes geometry drawn later in the same pass.
-//    - Colour/alpha write OFF (kNoChannels) -> does NOT paint black pixels into
-//      the beauty buffer. The scene colour behind the holdout is preserved.
+// 1. HoldoutDrawPass (holdOutBKGDGraphSemantic active):
+//    The holdout background pass pre-renders the full scene (including the image
+//    plane) into the target BEFORE the opaque beauty pass. Our item must be
+//    INVISIBLE here so the image plane shows through unobstructed.
+//    Action: suppress all writes (kNoChannels, no depth).
 //
-// 2. nonPEPatternPass (kNonPEPatternPassSemantic):
-//    - This pass writes into the separate maya_NonPEAlphaMaskTarget used by
-//      maya_CompositeWithAlphaMask to decide where the image plane shows through.
-//    - The target has NO depth buffer attached, so we leave state as-is.
-//    - solidColor=(0,0,0,0) -> alpha=0 is written to the mask.
-//    - alpha=0 in the mask -> compositor shows image plane through the holdout.
-//    - We must NOT override write masks here, so we do nothing.
+// 2. Opaque beauty pass (kOpaqueGeometrySemantic, no holdOutBKGDGraphSemantic):
+//    Normal opaque drawing. We need:
+//    - Depth write ON  -> occludes later geometry in the same pass.
+//    - Color write OFF (kNoChannels) -> does not paint over the beauty buffer.
+//    The holdout region stays as whatever HoldoutDrawPass left (image plane).
 //
-// Any other pass (shadow, depth prepass, etc.): do nothing extra.
+// 3. nonPEPatternPass (kNonPEPatternPassSemantic):
+//    Writes into maya_NonPEAlphaMaskTarget for post-effects compositing.
+//    Our solidColor=(0,0,0,0) will write alpha=0 here naturally.
+//    Action: do nothing (return early), let default state write alpha=0.
+//
+// 4. Any other pass (shadow, depth prepass, etc.):
+//    Action: suppress all writes.
 static void HoldoutDepthPreDrawCallback(
     MHWRender::MDrawContext& context,
     const MHWRender::MRenderItemList& /*renderItems*/,
@@ -145,27 +150,38 @@ static void HoldoutDepthPreDrawCallback(
     const MHWRender::MPassContext& passCtx = context.getPassContext();
     const MStringArray& semantics = passCtx.passSemantics();
 
-    // Check which pass we are in.
     bool isOpaque = false;
     bool isNonPEPattern = false;
+    bool isHoldoutBKGD = false;
     for (unsigned int i = 0; i < semantics.length(); ++i) {
         if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
             isOpaque = true;
         if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
             isNonPEPattern = true;
+        if (semantics[i] == "holdOutBKGDGraphSemantic")
+            isHoldoutBKGD = true;
     }
 
     if (isNonPEPattern) {
-        // Writing into maya_NonPEAlphaMaskTarget.
-        // solidColor=(0,0,0,0) will output alpha=0 -> compositor shows image plane.
-        // No depth buffer is attached to this target; leave all state at defaults.
+        // nonPEPatternPass: alpha mask target. solidColor alpha=0 writes naturally.
+        // No state override needed.
         return;
     }
 
-    if (!isOpaque) {
-        // Shadow pass, pre-Z, or other pass — suppress all writes.
-        MHWRender::MStateManager* stateManager = context.getStateManager();
-        if (!stateManager) return;
+    MHWRender::MStateManager* stateManager = context.getStateManager();
+    if (!stateManager) return;
+
+    if (isHoldoutBKGD) {
+        // HoldoutDrawPass background: the image plane is being drawn into this
+        // target. We must be completely invisible so we don't occlude it.
+        MHWRender::MDepthStencilStateDesc depthDesc;
+        depthDesc.setDefaults();
+        depthDesc.depthEnable      = false;
+        depthDesc.depthWriteEnable = false;
+        const MHWRender::MDepthStencilState* depthState =
+            MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
+        if (depthState) stateManager->setDepthStencilState(depthState);
+
         MHWRender::MBlendStateDesc blendDesc;
         blendDesc.targetBlends[0].blendEnable     = false;
         blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
@@ -175,9 +191,20 @@ static void HoldoutDepthPreDrawCallback(
         return;
     }
 
-    // Opaque beauty pass: write depth, suppress all colour/alpha writes.
-    MHWRender::MStateManager* stateManager = context.getStateManager();
-    if (!stateManager) return;
+    if (!isOpaque) {
+        // Shadow pass, pre-Z, or other pass — suppress all writes.
+        MHWRender::MBlendStateDesc blendDesc;
+        blendDesc.targetBlends[0].blendEnable     = false;
+        blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
+        const MHWRender::MBlendState* blendState =
+            MHWRender::MStateManager::acquireBlendState(blendDesc);
+        if (blendState) stateManager->setBlendState(blendState);
+        return;
+    }
+
+    // Opaque beauty pass (no holdoutBKGD): write depth, suppress colour writes.
+    // The image plane content is already in the buffer from HoldoutDrawPass.
+    // Depth write occludes later geometry; kNoChannels preserves that content.
 
     // Disable backface culling so holdout works regardless of winding order.
     MHWRender::MRasterizerStateDesc rastDesc;
@@ -196,9 +223,7 @@ static void HoldoutDepthPreDrawCallback(
         MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
     if (depthState) stateManager->setDepthStencilState(depthState);
 
-    // Suppress ALL colour/alpha writes to the beauty buffer.
-    // The alpha=0 we need for the compositor goes via the nonPEPatternPass above,
-    // NOT via the beauty buffer's alpha channel.
+    // Suppress all colour/alpha writes to the beauty buffer.
     MHWRender::MBlendStateDesc blendDesc;
     blendDesc.targetBlends[0].blendEnable     = false;
     blendDesc.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
@@ -218,33 +243,37 @@ static void HoldoutDepthPostDrawCallback(
 
     bool isOpaque = false;
     bool isNonPEPattern = false;
+    bool isHoldoutBKGD = false;
     for (unsigned int i = 0; i < semantics.length(); ++i) {
         if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
             isOpaque = true;
         if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
             isNonPEPattern = true;
+        if (semantics[i] == "holdOutBKGDGraphSemantic")
+            isHoldoutBKGD = true;
     }
 
-    // Only restore state in passes where the pre-draw callback changed it.
     if (isNonPEPattern) return; // pre-draw did nothing
 
     MHWRender::MStateManager* stateManager = context.getStateManager();
     if (!stateManager) return;
 
+    // Restore depth state (changed in opaque and holdoutBKGD passes).
     MHWRender::MDepthStencilStateDesc depthDesc;
     depthDesc.setDefaults();
     const MHWRender::MDepthStencilState* depthState =
         MHWRender::MStateManager::acquireDepthStencilState(depthDesc);
     if (depthState) stateManager->setDepthStencilState(depthState);
 
+    // Restore blend state (changed in all non-nonPE passes).
     MHWRender::MBlendStateDesc blendDesc;
     blendDesc.setDefaults();
     const MHWRender::MBlendState* blendState =
         MHWRender::MStateManager::acquireBlendState(blendDesc);
     if (blendState) stateManager->setBlendState(blendState);
 
-    if (isOpaque) {
-        // Also restore rasterizer (cull mode) — only changed in opaque pass.
+    if (isOpaque && !isHoldoutBKGD) {
+        // Restore rasterizer state — only changed in the opaque beauty pass.
         MHWRender::MRasterizerStateDesc rastDesc;
         rastDesc.setDefaults();
         const MHWRender::MRasterizerState* rastState =
