@@ -112,7 +112,7 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of 
 //   No blending needed; we simply write src.a = 0 to dst.a.
 static void HoldoutPreDrawCallback(
     MHWRender::MDrawContext& context,
-    const MHWRender::MRenderItemList& /*renderItemList*/,
+    const MHWRender::MRenderItemList& /*renderItems*/,
     MHWRender::MShaderInstance* /*shader*/)
 {
     MHWRender::MStateManager* stateManager = context.getStateManager();
@@ -149,7 +149,7 @@ static void HoldoutPreDrawCallback(
 // Post-draw callback: restore default depth and blend states.
 static void HoldoutPostDrawCallback(
     MHWRender::MDrawContext& context,
-    const MHWRender::MRenderItemList& /*renderItemList*/,
+    const MHWRender::MRenderItemList& /*renderItems*/,
     MHWRender::MShaderInstance* /*shader*/)
 {
     MHWRender::MStateManager* stateManager = context.getStateManager();
