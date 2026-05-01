@@ -914,11 +914,21 @@ void HdVP2Mesh::Sync(
         if (newHoldout != _isHoldout) {
             // We are transitioning (true -> false or vice-versa)
             _isHoldout = newHoldout;
-            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
-            RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& d) {
-                d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
-            };
-            _ForEachRenderItem(_reprs, markMaterialDirty);
+
+            if (_isHoldout) {
+                *dirtyBits |= MayaUsdRPrim::DirtyDisplayMode;
+                RenderItemFunc markDirty = [](HdVP2DrawItem::RenderItemData& d) {
+                    d.SetDirtyBits(MayaUsdRPrim::DirtyDisplayMode);
+                };
+                _ForEachRenderItem(_reprs, markDirty);
+            }
+
+            // *dirtyBits |= HdChangeTracker::DirtyMaterialId;
+            // RenderItemFunc markMaterialDirty = [](HdVP2DrawItem::RenderItemData& d) {
+            //     d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
+            // };
+            // _ForEachRenderItem(_reprs, markMaterialDirty);
+
             if (!_isHoldout) {
                 // Release shader clones when holdout is turned off.
                 MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
@@ -1824,32 +1834,30 @@ void HdVP2Mesh::_UpdateDrawItem(
         // Each render item needs its own clone of the shared holdout shader so VP2
         // fires pre/post-draw callbacks independently per item.
         if (_isHoldout) {
-            if (dirtyMaterialId) {
-                MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
-                if (holdoutShader) {
-                    // Check whether this render item already has a holdout clone assigned.
-                    const bool alreadyHasClone = (drawItemData._shader != nullptr)
-                        && (std::find(_holdoutShaderClones.begin(), _holdoutShaderClones.end(),
-                                      drawItemData._shader)
-                            != _holdoutShaderClones.end());
-                    if (!alreadyHasClone) {
-                        MHWRender::MShaderInstance* clone = holdoutShader->clone();
-                        if (clone) {
-                            _holdoutShaderClones.push_back(clone);
-                            drawItemData._shader  = clone;
-                            stateToCommit._shader = clone;
-                        }
+            MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
+            if (holdoutShader) {
+                // Check whether this render item already has a holdout clone assigned.
+                const bool alreadyHasClone = (drawItemData._shader != nullptr)
+                    && (std::find(_holdoutShaderClones.begin(), _holdoutShaderClones.end(),
+                                    drawItemData._shader)
+                        != _holdoutShaderClones.end());
+                if (!alreadyHasClone) {
+                    MHWRender::MShaderInstance* clone = holdoutShader->clone();
+                    if (clone) {
+                        _holdoutShaderClones.push_back(clone);
+                        drawItemData._shader  = clone;
+                        stateToCommit._shader = clone;
                     }
-                    // This will be used later inside the Commit lambda for
-                    // setTreatAsTransparent. It will serve 2 purposes:
-                    // 1. keep the renderItem in the opaqueList
-                    // 2. VP2 will use the setTreatAsTransparent override value and
-                    //      ignore the result of isTransparent() check on the shader.
-                    //      Since our holdout shader has alpha=0, it would return
-                    //      true for isTransparent() and VP2 would remove the item
-                    //      from the opaqueList.
-                    stateToCommit._isTransparent = false;
                 }
+                // This will be used later inside the Commit lambda for
+                // setTreatAsTransparent. It will serve 2 purposes:
+                // 1. keep the renderItem in the opaqueList
+                // 2. VP2 will use the setTreatAsTransparent override value and
+                //      ignore the result of isTransparent() check on the shader.
+                //      Since our holdout shader has alpha=0, it would return
+                //      true for isTransparent() and VP2 would remove the item
+                //      from the opaqueList.
+                stateToCommit._isTransparent = false;
             }
         } else if (dirtyMaterialId) {
             SdfPath materialId = GetMaterialId();
