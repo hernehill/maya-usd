@@ -2354,14 +2354,6 @@ void HdVP2Mesh::_UpdateDrawItem(
 
             ProxyRenderDelegate& drawScene = param->GetDrawScene();
 
-            // if (isHoldout) {
-            //     // Force opaque treatment — holdout items must be in the opaque draw
-            //     // list so they write depth and appear in nonPostEffectList. If VP2
-            //     // ever classifies them as transparent their pre-draw callback won't
-            //     // fire and neither depth nor alpha=0 will be written.
-            //     renderItem->setTreatAsTransparent(false);
-            // }
-
             // TODO: this is now including all buffers for the requirements of all
             // the render items on this rprim. We could filter it down based on the
             // requirements of the shader.
@@ -2428,12 +2420,6 @@ void HdVP2Mesh::_UpdateDrawItem(
                         "Could not create OGS geometry for [%s], maybe it has no geometry?",
                         renderItem->name().asChar());
                 }
-
-                // // Holdout items must have consolidation disabled even after geometry submission,
-                // // because setGeometryForRenderItem() may re-enable consolidation internally.
-                // if (isHoldout) {
-                //     renderItem->setWantConsolidation(false);
-                // }
             }
 
             // Holdout items must unconditionally suppress consolidation every commit,
