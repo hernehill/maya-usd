@@ -133,7 +133,7 @@ const MString kStructOutputName = "outSurfaceFinal"; //!< Output struct name of 
 
 static void HoldoutPreDrawCallback(
     MHWRender::MDrawContext& context,
-    const MHWRender::MRenderItemList& /*renderItems*/,
+    const MHWRender::MRenderItemList& renderItems,
     MHWRender::MShaderInstance* /*shader*/)
 {
     const MStringArray& semantics = context.getPassContext().passSemantics();
@@ -147,8 +147,27 @@ static void HoldoutPreDrawCallback(
                 msg += " ";
                 msg += semantics[i];
             }
+            // Also report consolidation state of the first item.
+            if (renderItems.length() > 0) {
+                const MHWRender::MRenderItem* item = renderItems.itemAt(0);
+                if (item) {
+                    msg += item->isConsolidated() ? "  [CONSOLIDATED]" : "  [not consolidated]";
+                }
+            }
             MGlobal::displayWarning(msg);
             ++sDbg;
+        }
+    }
+
+    // Debug: always log when holdOutBKGDGraphSemantic fires — that's the key pass.
+    for (unsigned int i = 0; i < semantics.length(); ++i) {
+        if (semantics[i] == "holdOutBKGDGraphSemantic") {
+            static int sBkgdDbg = 0;
+            if (sBkgdDbg < 5) {
+                MGlobal::displayWarning("[Holdout] *** holdOutBKGDGraphSemantic DETECTED ***");
+                ++sBkgdDbg;
+            }
+            break;
         }
     }
 
