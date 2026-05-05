@@ -166,6 +166,7 @@ static void HoldoutPreDrawCallback(
         if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
 
         MHWRender::MBlendStateDesc bl;
+        bl.setDefaults();
         bl.targetBlends[0].blendEnable     = false;
         bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
         if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
@@ -191,12 +192,14 @@ static void HoldoutPreDrawCallback(
     if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
 
     MHWRender::MDepthStencilStateDesc ds;
+    ds.setDefaults();
     ds.depthEnable      = true;
     ds.depthWriteEnable = true;
     ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
     if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
 
     MHWRender::MBlendStateDesc bl;
+    bl.setDefaults();
     bl.targetBlends[0].blendEnable     = false;
     bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
     if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
