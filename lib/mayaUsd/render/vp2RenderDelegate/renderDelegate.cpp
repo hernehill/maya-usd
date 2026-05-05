@@ -187,16 +187,6 @@ static void HoldoutPreDrawCallback(
     if (isOpaque || isDepthPrePass) {
         // Opaque beauty pass or depth pre-pass: write depth to occlude later geometry,
         // suppress ALL colour/alpha writes (image plane content stays untouched).
-        static int sDbg = 0;
-        if (sDbg < 10) {
-            MString msg("[Holdout] opaque branch hit, isOpaque=");
-            msg += (int)isOpaque;
-            msg += " isDepthPrePass=";
-            msg += (int)isDepthPrePass;
-            MGlobal::displayWarning(msg);
-            ++sDbg;
-        }
-
         MHWRender::MRasterizerStateDesc rs;
         rs.setDefaults();
         rs.cullMode = MHWRender::MRasterizerState::kCullNone;
@@ -208,13 +198,6 @@ static void HoldoutPreDrawCallback(
         ds.depthWriteEnable = true;
         ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
         auto* depthState = MHWRender::MStateManager::acquireDepthStencilState(ds);
-        static int sDbg2 = 0;
-        if (sDbg2 < 10) {
-            MString msg2("[Holdout] acquireDepthStencilState returned: ");
-            msg2 += depthState ? "VALID" : "NULL";
-            MGlobal::displayWarning(msg2);
-            ++sDbg2;
-        }
         if (depthState) sm->setDepthStencilState(depthState);
 
         MHWRender::MBlendStateDesc bl;
@@ -226,13 +209,6 @@ static void HoldoutPreDrawCallback(
     }
 
     // Shadow or any other unrecognized pass: suppress everything.
-    static int sDbg3 = 0;
-    if (sDbg3 < 10) {
-        MString msg("[Holdout] suppress branch hit, semantics:");
-        for (unsigned int i = 0; i < semantics.length(); ++i) { msg += " "; msg += semantics[i]; }
-        MGlobal::displayWarning(msg);
-        ++sDbg3;
-    }
     suppressAllWrites();
 }
 

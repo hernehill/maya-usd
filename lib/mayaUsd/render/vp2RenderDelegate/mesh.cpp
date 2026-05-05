@@ -2874,6 +2874,10 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
         renderItem->castsShadows(false);
         renderItem->receivesShadows(false);
         renderItem->setTreatAsTransparent(false);
+        // Draw holdout items before all other opaque geometry so their depth
+        // values are in the depth buffer before background geometry rasterizes.
+        // This ensures background geometry fails the depth test and is occluded.
+        renderItem->depthPriority(0);
         _SetWantConsolidation(*renderItem, false);
     }
 
