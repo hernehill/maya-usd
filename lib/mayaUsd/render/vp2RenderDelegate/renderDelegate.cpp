@@ -387,7 +387,7 @@ public:
             HoldoutPreDrawCallback,
             HoldoutPostDrawCallback);
         if (TF_VERIFY(_holdoutShader)) {
-            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            const float color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
             _holdoutShader->setParameter(kSolidColorParameterName, color);
         }
 
