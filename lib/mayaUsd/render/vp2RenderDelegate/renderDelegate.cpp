@@ -136,20 +136,26 @@ static void HoldoutPreDrawCallback(
     const MHWRender::MRenderItemList& /*renderItems*/,
     MHWRender::MShaderInstance* /*shader*/)
 {
+    // ---------------------------
+    // Determine what render sematic is running
     const MStringArray& semantics = context.getPassContext().passSemantics();
 
+    bool isDepthPrePass = false;
+    bool isHoldoutBKGD  = false;
     bool isOpaque       = false;
     bool isNonPEPattern = false;
-    bool isHoldoutBKGD  = false;
     for (unsigned int i = 0; i < semantics.length(); ++i) {
-        if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
+        if (semantics[i] == MHWRender::MPassContext::kDepthPassSemantic)
+            isDepthPrePass = true;
+        else if (semantics[i] == "holdOutBKGDGraphSemantic")
+            isHoldoutBKGD = true;
+        else if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
             isOpaque = true;
         else if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
             isNonPEPattern = true;
-        else if (semantics[i] == "holdOutBKGDGraphSemantic")
-            isHoldoutBKGD = true;
     }
 
+    // ---------------------------
     // nonPEPatternPass: writing to the alpha-mask target.
     // solidColor=(0,0,0,0) writes alpha=0 naturally — compositor shows image plane.
     // No state override needed.
@@ -184,25 +190,27 @@ static void HoldoutPreDrawCallback(
         return;
     }
 
-    // Opaque beauty pass: write depth to occlude later geometry,
-    // suppress ALL colour/alpha writes (image plane content stays untouched).
-    MHWRender::MRasterizerStateDesc rs;
-    rs.setDefaults();
-    rs.cullMode = MHWRender::MRasterizerState::kCullNone; // helps with right/leftHanded meshes
-    if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
+    if (isOpaque || isDepthPrePass) {
+        // Opaque beauty pass: write depth to occlude later geometry,
+        // suppress ALL colour/alpha writes (image plane content stays untouched).
+        MHWRender::MRasterizerStateDesc rs;
+        rs.setDefaults();
+        rs.cullMode = MHWRender::MRasterizerState::kCullNone; // helps with right/leftHanded meshes
+        if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
 
-    MHWRender::MDepthStencilStateDesc ds;
-    ds.setDefaults();
-    ds.depthEnable      = true;
-    ds.depthWriteEnable = true;
-    ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
-    if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
+        MHWRender::MDepthStencilStateDesc ds;
+        ds.setDefaults();
+        ds.depthEnable      = true;
+        ds.depthWriteEnable = true;
+        ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
+        if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
 
-    MHWRender::MBlendStateDesc bl;
-    bl.setDefaults();
-    bl.targetBlends[0].blendEnable     = false;
-    bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
-    if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
+        MHWRender::MBlendStateDesc bl;
+        bl.setDefaults();
+        bl.targetBlends[0].blendEnable     = false;
+        bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
+        if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
+    }
 }
 
 static void HoldoutPostDrawCallback(
@@ -210,20 +218,26 @@ static void HoldoutPostDrawCallback(
     const MHWRender::MRenderItemList& /*renderItems*/,
     MHWRender::MShaderInstance* /*shader*/)
 {
+    // ---------------------------
+    // Determine what render sematic is running
     const MStringArray& semantics = context.getPassContext().passSemantics();
 
-    bool isNonPEPattern = false;
-    bool isOpaque       = false;
+    bool isDepthPrePass = false;
     bool isHoldoutBKGD  = false;
+    bool isOpaque       = false;
+    bool isNonPEPattern = false;
     for (unsigned int i = 0; i < semantics.length(); ++i) {
-        if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
-            isNonPEPattern = true;
-        else if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
-            isOpaque = true;
+        if (semantics[i] == MHWRender::MPassContext::kDepthPassSemantic)
+            isDepthPrePass = true;
         else if (semantics[i] == "holdOutBKGDGraphSemantic")
             isHoldoutBKGD = true;
+        else if (semantics[i] == MHWRender::MPassContext::kOpaqueGeometrySemantic)
+            isOpaque = true;
+        else if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
+            isNonPEPattern = true;
     }
 
+    // ---------------------------
     if (isNonPEPattern) return; // pre-draw did nothing
 
     MHWRender::MStateManager* sm = context.getStateManager();
@@ -390,7 +404,7 @@ public:
             HoldoutPreDrawCallback,
             HoldoutPostDrawCallback);
         if (TF_VERIFY(_holdoutShader)) {
-            const float color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            const float color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
             _holdoutShader->setParameter(kSolidColorParameterName, color);
         }
 
