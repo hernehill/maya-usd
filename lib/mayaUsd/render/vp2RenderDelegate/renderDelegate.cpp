@@ -251,7 +251,7 @@ static void HoldoutPostDrawCallback(
     bl.setDefaults();
     if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
 
-    if (isOpaque || isDepthPrePass) && (!isHoldoutBKGD) {
+    if ((isOpaque || isDepthPrePass) && (!isHoldoutBKGD)) {
         MHWRender::MRasterizerStateDesc rs;
         rs.setDefaults();
         if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
