@@ -914,6 +914,15 @@ void HdVP2Mesh::Sync(
         const bool newHoldout = _IsHoldout(id);
         if (newHoldout != _isHoldout) {
             _isHoldout = newHoldout;
+
+            // Mark material dirty so _UpdateDrawItem runs to assign or
+            // release the holdout shader clone.
+            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
+            RenderItemFunc markDirty = [](HdVP2DrawItem::RenderItemData& d) {
+                d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
+            };
+            _ForEachRenderItem(_reprs, markDirty);
+
             if (!_isHoldout) {
                 // Release shader clones when holdout is turned off.
                 MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
@@ -927,16 +936,6 @@ void HdVP2Mesh::Sync(
             }
         }
 
-        // For holdout items, force a dirty bit every frame so _UpdateDrawItem
-        // always runs, ensuring setWantConsolidation(false) is enqueued every
-        // frame via the commit queue — even on frames with no scene changes.
-        if (_isHoldout) {
-            *dirtyBits |= HdChangeTracker::DirtyMaterialId;
-            RenderItemFunc markDirty = [](HdVP2DrawItem::RenderItemData& d) {
-                d.SetDirtyBits(HdChangeTracker::DirtyMaterialId);
-            };
-            _ForEachRenderItem(_reprs, markDirty);
-        }
     }
 
 #if defined(HD_API_VERSION) && HD_API_VERSION >= 36
