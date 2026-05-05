@@ -184,14 +184,8 @@ static void HoldoutPreDrawCallback(
         return;
     }
 
-    if (!isOpaque) {
-        // Shadow, preZ, or any other pass: suppress everything.
-        suppressAllWrites();
-        return;
-    }
-
     if (isOpaque || isDepthPrePass) {
-        // Opaque beauty pass: write depth to occlude later geometry,
+        // Opaque beauty pass or depth pre-pass: write depth to occlude later geometry,
         // suppress ALL colour/alpha writes (image plane content stays untouched).
         MHWRender::MRasterizerStateDesc rs;
         rs.setDefaults();
@@ -210,7 +204,11 @@ static void HoldoutPreDrawCallback(
         bl.targetBlends[0].blendEnable     = false;
         bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
         if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
+        return;
     }
+
+    // Shadow or any other unrecognized pass: suppress everything.
+    suppressAllWrites();
 }
 
 static void HoldoutPostDrawCallback(
@@ -239,6 +237,7 @@ static void HoldoutPostDrawCallback(
 
     // ---------------------------
     if (isNonPEPattern) return; // pre-draw did nothing
+    if (!isOpaque && !isDepthPrePass && !isHoldoutBKGD) return; // pre-draw only called suppressAllWrites, no rasterizer state changed
 
     MHWRender::MStateManager* sm = context.getStateManager();
     if (!sm) return;
