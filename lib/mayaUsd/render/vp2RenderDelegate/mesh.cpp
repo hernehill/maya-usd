@@ -2430,19 +2430,18 @@ void HdVP2Mesh::_UpdateDrawItem(
                         "Could not create OGS geometry for [%s], maybe it has no geometry?",
                         renderItem->name().asChar());
                 }
-
-                // setGeometryForRenderItem() can move the item to the transparent list
-                // by re-evaluating shader transparency. Re-assert opaque for holdout items.
-                if (isHoldout) {
-                    renderItem->setTreatAsTransparent(false);
-                }
             }
 
-            // Holdout items must unconditionally suppress consolidation every commit,
-            // not just when geometry changes, because VP2 may re-evaluate consolidation
-            // eligibility on any frame.
             if (isHoldout) {
+                // Holdout items must unconditionally suppress consolidation every commit,
+                // not just when geometry changes, because VP2 may re-evaluate consolidation
+                // eligibility on any frame.
                 renderItem->setWantConsolidation(false);
+
+                // setGeometryForRenderItem() can move the item to the transparent list
+                // by re-evaluating shader transparency. Re-assert opaque unconditionally,
+                // not just when geometry is dirty, because VP2 may re-evaluate on any frame.
+                renderItem->setTreatAsTransparent(false);
             }
 
             // Important, update instance transforms after setting geometry on render items!
