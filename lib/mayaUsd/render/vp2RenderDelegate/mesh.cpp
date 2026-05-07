@@ -1826,16 +1826,26 @@ void HdVP2Mesh::_UpdateDrawItem(
         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
 
         // Holdout: override with the holdout shader regardless of material binding.
-        // DIAGNOSTIC: use a plain opaque red shader with NO callbacks to test
-        // whether depth write works at all when callbacks are not involved.
+        // Each render item needs its own clone of the shared holdout shader so VP2
+        // fires pre/post-draw callbacks independently per item.
         if (_isHoldout) {
-            MHWRender::MShaderInstance* diagShader
-                = _delegate->Get3dSolidShader(MColor(1.0f, 0.0f, 0.0f, 1.0f));
-            if (diagShader && diagShader != drawItemData._shader) {
-                drawItemData._shader  = diagShader;
-                stateToCommit._shader = diagShader;
+            MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
+            if (holdoutShader) {
+                // Check whether this render item already has a holdout clone assigned.
+                const bool alreadyHasClone = (drawItemData._shader != nullptr)
+                    && (std::find(_holdoutShaderClones.begin(), _holdoutShaderClones.end(),
+                                    drawItemData._shader)
+                        != _holdoutShaderClones.end());
+                if (!alreadyHasClone) {
+                    MHWRender::MShaderInstance* clone = holdoutShader->clone();
+                    if (clone) {
+                        _holdoutShaderClones.push_back(clone);
+                        drawItemData._shader  = clone;
+                        stateToCommit._shader = clone;
+                    }
+                }
+                stateToCommit._isTransparent = false;
             }
-            stateToCommit._isTransparent = false;
         } else if (dirtyMaterialId) {
             SdfPath materialId = GetMaterialId();
             if (drawItemData._geomSubset.id != SdfPath::EmptyPath()) {

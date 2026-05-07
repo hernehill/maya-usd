@@ -185,8 +185,8 @@ static void HoldoutPreDrawCallback(
     }
 
     if (isOpaque || isDepthPrePass) {
-        // Opaque beauty pass or depth pre-pass: write depth to occlude later geometry,
-        // suppress ALL colour/alpha writes (image plane content stays untouched).
+        // Opaque beauty pass or depth pre-pass: write depth to occlude later geometry.
+        // DIAGNOSTIC: blend state removed to test if kNoChannels breaks depth write.
         MHWRender::MRasterizerStateDesc rs;
         rs.setDefaults();
         rs.cullMode = MHWRender::MRasterizerState::kCullNone;
@@ -200,11 +200,7 @@ static void HoldoutPreDrawCallback(
         auto* depthState = MHWRender::MStateManager::acquireDepthStencilState(ds);
         if (depthState) sm->setDepthStencilState(depthState);
 
-        MHWRender::MBlendStateDesc bl;
-        bl.setDefaults();
-        bl.targetBlends[0].blendEnable     = false;
-        bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
-        if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
+        // Blend state intentionally omitted — testing whether kNoChannels breaks depth write.
         return;
     }
 
