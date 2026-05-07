@@ -417,6 +417,8 @@ HdVP2Mesh::~HdVP2Mesh()
         }
         _holdoutShaderClones.clear();
     }
+    // Depth render items are owned by the MSubSceneContainer; just clear our list.
+    _holdoutDepthRenderItems.clear();
 }
 
 void HdVP2Mesh::_PrepareSharedVertexBuffers(
@@ -924,7 +926,7 @@ void HdVP2Mesh::Sync(
             _ForEachRenderItem(_reprs, markDirty);
 
             if (!_isHoldout) {
-                // Release shader clones when holdout is turned off.
+                // Release shader clones and depth render items when holdout is turned off.
                 MHWRender::MRenderer*            renderer = MHWRender::MRenderer::theRenderer();
                 const MHWRender::MShaderManager* shaderMgr
                     = renderer ? renderer->getShaderManager() : nullptr;
@@ -933,6 +935,15 @@ void HdVP2Mesh::Sync(
                         shaderMgr->releaseShader(clone);
                 }
                 _holdoutShaderClones.clear();
+
+                // Disable and release depth render items.
+                auto* p = static_cast<HdVP2RenderParam*>(_delegate->GetRenderParam());
+                MSubSceneContainer* container = p->GetContainer();
+                for (auto* depthItem : _holdoutDepthRenderItems) {
+                    if (container)
+                        container->remove(depthItem->name());
+                }
+                _holdoutDepthRenderItems.clear();
             }
         }
 
@@ -1843,6 +1854,18 @@ void HdVP2Mesh::_UpdateDrawItem(
                         drawItemData._shader  = clone;
                         stateToCommit._shader = clone;
                     }
+                    // Assign a separate clone to each depth render item.
+                    for (MHWRender::MRenderItem* depthItem : _holdoutDepthRenderItems) {
+                        MHWRender::MShaderInstance* depthClone = holdoutShader->clone();
+                        if (depthClone) {
+                            _holdoutShaderClones.push_back(depthClone);
+                            _delegate->GetVP2ResourceRegistry().EnqueueCommit(
+                                [depthItem, depthClone]() {
+                                    depthItem->setShader(depthClone);
+                                    depthItem->setWantConsolidation(false);
+                                });
+                        }
+                    }
                 }
                 stateToCommit._isTransparent = false;
             }
@@ -2424,9 +2447,6 @@ void HdVP2Mesh::_UpdateDrawItem(
             }
 
             if (isHoldout) {
-                // Holdout items must stay in the transparent list (setTreatAsTransparent(true))
-                // so VP2's BlendOver state makes solidColor=(0,0,0,0) invisible.
-                // The pre-draw callback overrides ZLessNoW to enable depth write.
                 renderItem->setWantConsolidation(false);
             }
 
@@ -2521,14 +2541,49 @@ void HdVP2Mesh::_UpdateDrawItem(
         });
     }
 
-    // For holdout items, in case stateToCommit.Empty() (above) returned True and
-    // the lambda commit was never created.
     if (_isHoldout) {
-        _delegate->GetVP2ResourceRegistry().EnqueueCommit([renderItem]() {
-            renderItem->setExcludedFromPostEffects(true);
-            renderItem->setTreatAsTransparent(true);
-            renderItem->setWantConsolidation(false);
-        });
+        const bool isHoldout = true;
+        for (MHWRender::MRenderItem* depthItem : _holdoutDepthRenderItems) {
+            _delegate->GetVP2ResourceRegistry().EnqueueCommit(
+                [depthItem, stateToCommit, param, primvarInfo, primvars,
+                 indexBuffer, isBBoxItem, &sharedBBoxGeom]() {
+                    if (!depthItem) return;
+                    ProxyRenderDelegate& drawScene = param->GetDrawScene();
+                    MHWRender::MVertexBufferArray vertexBuffers;
+                    // Reuse same vertex/index setup as the main item.
+                    if (stateToCommit._indexBufferData)
+                        indexBuffer->commit(stateToCommit._indexBufferData);
+                    std::set<TfToken> addedPrimvars;
+                    auto addPrimvar = [primvarInfo, &vertexBuffers, &addedPrimvars,
+                                       isBBoxItem, &sharedBBoxGeom,
+                                       &depthItem](const TfToken& p) {
+                        auto entry = primvarInfo->find(p);
+                        if (entry == primvarInfo->cend()) return;
+                        MHWRender::MVertexBuffer* buf = nullptr;
+                        if (isBBoxItem && p == HdTokens->points)
+                            buf = const_cast<MHWRender::MVertexBuffer*>(
+                                sharedBBoxGeom.GetPositionBuffer());
+                        else
+                            buf = entry->second->_buffer.get();
+                        if (buf) vertexBuffers.addBuffer(p.GetText(), buf);
+                        addedPrimvars.insert(p);
+                    };
+                    addPrimvar(HdTokens->points);
+                    if (primvars) {
+                        for (const TfToken& name : *primvars)
+                            if (addedPrimvars.find(name) == addedPrimvars.cend())
+                                addPrimvar(name);
+                    }
+                    drawScene.setGeometryForRenderItem(
+                        *depthItem, vertexBuffers, *indexBuffer, nullptr);
+                    depthItem->setWantConsolidation(false);
+                    // World matrix
+                    if (stateToCommit._worldMatrix)
+                        depthItem->setMatrix(stateToCommit._worldMatrix);
+                    if (stateToCommit._enabled)
+                        depthItem->enable(*stateToCommit._enabled);
+                });
+        }
     }
 
     // Reset dirty bits because we've prepared commit state for this render item.
@@ -2859,13 +2914,34 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
         renderItem->setExcludedFromPostEffects(true);
         renderItem->castsShadows(false);
         renderItem->receivesShadows(false);
-        // Treat as transparent so VP2 puts this item in the transparent pass.
-        // The transparent pass already has BlendOver active (solidColor=(0,0,0,0)
-        // with alpha=0 blends as fully invisible). Our pre-draw callback then
-        // overrides ZLessNoW to enable depth write, giving us occlusion.
         renderItem->setTreatAsTransparent(true);
-        renderItem->depthPriority(0);
         _SetWantConsolidation(*renderItem, false);
+
+        // Create a companion depth-only render item in the opaque pass.
+        // This item writes depth (for occlusion) but not color, using a
+        // NonMaterialSceneItem with a fully opaque shader and no callbacks.
+        // VP2 default opaque state writes depth correctly without any override.
+        MString depthItemName = itemName;
+        depthItemName += "_depth";
+        MHWRender::MRenderItem* depthItem = MHWRender::MRenderItem::Create(
+            depthItemName,
+            MHWRender::MRenderItem::NonMaterialSceneItem,
+            MHWRender::MGeometry::kTriangles);
+        depthItem->setDrawMode(drawMode);
+        depthItem->setExcludedFromPostEffects(true);
+        depthItem->castsShadows(false);
+        depthItem->receivesShadows(false);
+        depthItem->setTreatAsTransparent(false);
+        _SetWantConsolidation(*depthItem, false);
+        // The depth item gets its own holdout shader clone so the pre/post
+        // callbacks fire on it. In the opaque pass the callback sets depth
+        // write ON + color write OFF (kNoChannels). On a NonMaterialSceneItem
+        // this may behave differently from a MaterialSceneItem.
+        // The clone is assigned in _UpdateDrawItem when the main clone is created.
+        depthItem->setShader(_delegate->Get3dSolidShader(
+            MColor(0.0f, 0.0f, 0.0f, 1.0f)));
+        subSceneContainer.add(depthItem);
+        const_cast<HdVP2Mesh*>(this)->_holdoutDepthRenderItems.push_back(depthItem);
     }
 
 #ifdef MAYA_NEW_POINT_SNAPPING_SUPPORT

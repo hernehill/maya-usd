@@ -232,6 +232,11 @@ private:
     //! so VP2 fires the pre/post-draw callbacks independently per item.
     std::vector<MHWRender::MShaderInstance*> _holdoutShaderClones;
 
+    //! Depth-only render items paired with holdout items for occlusion.
+    //! Each holdout prim gets a companion depth item that draws opaque black
+    //! in the opaque pass, writing depth without color (NonMaterialSceneItem).
+    std::vector<MHWRender::MRenderItem*> _holdoutDepthRenderItems;
+
     static size_t _gpuNormalsComputeThreshold;
 };
 
