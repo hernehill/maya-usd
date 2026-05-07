@@ -2424,15 +2424,10 @@ void HdVP2Mesh::_UpdateDrawItem(
             }
 
             if (isHoldout) {
-                // Holdout items must unconditionally suppress consolidation every commit,
-                // not just when geometry changes, because VP2 may re-evaluate consolidation
-                // eligibility on any frame.
+                // Holdout items must stay in the transparent list (setTreatAsTransparent(true))
+                // so VP2's BlendOver state makes solidColor=(0,0,0,0) invisible.
+                // The pre-draw callback overrides ZLessNoW to enable depth write.
                 renderItem->setWantConsolidation(false);
-
-                // setGeometryForRenderItem() can move the item to the transparent list
-                // by re-evaluating shader transparency. Re-assert opaque unconditionally,
-                // not just when geometry is dirty, because VP2 may re-evaluate on any frame.
-                renderItem->setTreatAsTransparent(false);
             }
 
             // Important, update instance transforms after setting geometry on render items!
@@ -2531,7 +2526,7 @@ void HdVP2Mesh::_UpdateDrawItem(
     if (_isHoldout) {
         _delegate->GetVP2ResourceRegistry().EnqueueCommit([renderItem]() {
             renderItem->setExcludedFromPostEffects(true);
-            renderItem->setTreatAsTransparent(false);
+            renderItem->setTreatAsTransparent(true);
             renderItem->setWantConsolidation(false);
         });
     }
@@ -2864,10 +2859,11 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
         renderItem->setExcludedFromPostEffects(true);
         renderItem->castsShadows(false);
         renderItem->receivesShadows(false);
-        renderItem->setTreatAsTransparent(false);
-        // Draw holdout items before all other opaque geometry so their depth
-        // values are in the depth buffer before background geometry rasterizes.
-        // This ensures background geometry fails the depth test and is occluded.
+        // Treat as transparent so VP2 puts this item in the transparent pass.
+        // The transparent pass already has BlendOver active (solidColor=(0,0,0,0)
+        // with alpha=0 blends as fully invisible). Our pre-draw callback then
+        // overrides ZLessNoW to enable depth write, giving us occlusion.
+        renderItem->setTreatAsTransparent(true);
         renderItem->depthPriority(0);
         _SetWantConsolidation(*renderItem, false);
     }

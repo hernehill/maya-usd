@@ -140,10 +140,11 @@ static void HoldoutPreDrawCallback(
     // Determine what render sematic is running
     const MStringArray& semantics = context.getPassContext().passSemantics();
 
-    bool isDepthPrePass = false;
-    bool isHoldoutBKGD  = false;
-    bool isOpaque       = false;
-    bool isNonPEPattern = false;
+    bool isDepthPrePass   = false;
+    bool isHoldoutBKGD     = false;
+    bool isOpaque          = false;
+    bool isNonPEPattern    = false;
+    bool isTransparent     = false;
     for (unsigned int i = 0; i < semantics.length(); ++i) {
         if (semantics[i] == MHWRender::MPassContext::kDepthPassSemantic)
             isDepthPrePass = true;
@@ -153,6 +154,9 @@ static void HoldoutPreDrawCallback(
             isOpaque = true;
         else if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
             isNonPEPattern = true;
+        else if (semantics[i] == MHWRender::MPassContext::kTransparentPeelAndAvgSemantic
+                 || semantics[i] == "transparentGeometry")
+            isTransparent = true;
     }
 
     // ---------------------------
@@ -184,13 +188,24 @@ static void HoldoutPreDrawCallback(
         return;
     }
 
-    if (isOpaque || isDepthPrePass) {
-        // Opaque beauty pass or depth pre-pass: write depth only.
-        // We do NOT touch the blend state — OGS's default blend state for this
-        // pass already handles solidColor=(0,0,0,0) as invisible. Setting any
-        // custom blend state (including kNoChannels or src=ZERO/dst=ONE) causes
-        // OGS to route the fragment through the transparent pipeline, disabling
-        // depth write regardless of our depth state override.
+    if (isOpaque || isDepthPrePass || isTransparent) {
+        // Opaque/depth-pre pass: depth write ON, no blend state override
+        // (any custom blend state breaks OGS depth write).
+        // Transparent pass: VP2 already set BlendOver (alpha blending) so
+        // solidColor=(0,0,0,0) is invisible. We only override depth write ON
+        // since VP2 sets ZLessNoW (no depth write) for transparent items.
+        static int sDbg = 0;
+        if (sDbg < 10) {
+            MString msg("[Holdout] depth branch: opaque=");
+            msg += (int)isOpaque;
+            msg += " depthPre=";
+            msg += (int)isDepthPrePass;
+            msg += " transp=";
+            msg += (int)isTransparent;
+            MGlobal::displayWarning(msg);
+            ++sDbg;
+        }
+
         MHWRender::MRasterizerStateDesc rs;
         rs.setDefaults();
         rs.cullMode = MHWRender::MRasterizerState::kCullNone;
@@ -203,7 +218,7 @@ static void HoldoutPreDrawCallback(
         ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
         if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
 
-        // No blend state override — leave OGS default in place.
+        // No blend state override — leave VP2's pass blend state intact.
         return;
     }
 
@@ -220,10 +235,11 @@ static void HoldoutPostDrawCallback(
     // Determine what render sematic is running
     const MStringArray& semantics = context.getPassContext().passSemantics();
 
-    bool isDepthPrePass = false;
-    bool isHoldoutBKGD  = false;
-    bool isOpaque       = false;
-    bool isNonPEPattern = false;
+    bool isDepthPrePass   = false;
+    bool isHoldoutBKGD     = false;
+    bool isOpaque          = false;
+    bool isNonPEPattern    = false;
+    bool isTransparent     = false;
     for (unsigned int i = 0; i < semantics.length(); ++i) {
         if (semantics[i] == MHWRender::MPassContext::kDepthPassSemantic)
             isDepthPrePass = true;
@@ -233,21 +249,25 @@ static void HoldoutPostDrawCallback(
             isOpaque = true;
         else if (semantics[i] == MHWRender::MPassContext::kNonPEPatternPassSemantic)
             isNonPEPattern = true;
+        else if (semantics[i] == MHWRender::MPassContext::kTransparentPeelAndAvgSemantic
+                 || semantics[i] == "transparentGeometry")
+            isTransparent = true;
     }
 
     // ---------------------------
-    if (isNonPEPattern) return; // pre-draw did nothing
-    if (!isOpaque && !isDepthPrePass && !isHoldoutBKGD) return; // pre-draw only called suppressAllWrites, no rasterizer state changed
+    if (isNonPEPattern) return;
+    if (!isOpaque && !isDepthPrePass && !isHoldoutBKGD && !isTransparent) return;
 
     MHWRender::MStateManager* sm = context.getStateManager();
     if (!sm) return;
 
-    // Restore depth state. No blend state to restore since we didn't set one.
+    // Restore depth and rasterizer state that pre-draw overrode.
+    // The transparent pass's blend state was not touched, so no need to restore it.
     MHWRender::MDepthStencilStateDesc ds;
     ds.setDefaults();
     if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
 
-    if ((isOpaque || isDepthPrePass) && !isHoldoutBKGD) {
+    if (!isHoldoutBKGD) {
         MHWRender::MRasterizerStateDesc rs;
         rs.setDefaults();
         if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
