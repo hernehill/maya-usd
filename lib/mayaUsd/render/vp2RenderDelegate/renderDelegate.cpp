@@ -185,8 +185,11 @@ static void HoldoutPreDrawCallback(
     }
 
     if (isOpaque || isDepthPrePass) {
-        // Opaque beauty pass or depth pre-pass: write depth to occlude later geometry.
-        // DIAGNOSTIC: blend state removed to test if kNoChannels breaks depth write.
+        // Opaque beauty pass or depth pre-pass: write depth to occlude later geometry,
+        // suppress colour/alpha writes without using kNoChannels (which breaks depth write
+        // on OGS by discarding fragments before the depth unit).
+        // Instead, use a blend equation of src=ZERO, dst=ONE: the holdout colour contributes
+        // nothing to the framebuffer while depth write proceeds normally.
         MHWRender::MRasterizerStateDesc rs;
         rs.setDefaults();
         rs.cullMode = MHWRender::MRasterizerState::kCullNone;
@@ -197,10 +200,18 @@ static void HoldoutPreDrawCallback(
         ds.depthEnable      = true;
         ds.depthWriteEnable = true;
         ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
-        auto* depthState = MHWRender::MStateManager::acquireDepthStencilState(ds);
-        if (depthState) sm->setDepthStencilState(depthState);
+        if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
 
-        // Blend state intentionally omitted — testing whether kNoChannels breaks depth write.
+        MHWRender::MBlendStateDesc bl;
+        bl.setDefaults();
+        bl.targetBlends[0].blendEnable    = true;
+        bl.targetBlends[0].sourceBlend    = MHWRender::MBlendState::kZero;
+        bl.targetBlends[0].destinationBlend = MHWRender::MBlendState::kOne;
+        bl.targetBlends[0].blendOperation  = MHWRender::MBlendState::kAdd;
+        bl.targetBlends[0].alphaSourceBlend    = MHWRender::MBlendState::kZero;
+        bl.targetBlends[0].alphaDestinationBlend = MHWRender::MBlendState::kOne;
+        bl.targetBlends[0].alphaBlendOperation   = MHWRender::MBlendState::kAdd;
+        if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
         return;
     }
 
