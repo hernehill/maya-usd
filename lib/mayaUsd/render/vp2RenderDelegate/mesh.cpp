@@ -1826,34 +1826,16 @@ void HdVP2Mesh::_UpdateDrawItem(
         bool dirtyMaterialId = (itemDirtyBits & HdChangeTracker::DirtyMaterialId) != 0;
 
         // Holdout: override with the holdout shader regardless of material binding.
-        // Each render item needs its own clone of the shared holdout shader so VP2
-        // fires pre/post-draw callbacks independently per item.
+        // DIAGNOSTIC: use a plain opaque red shader with NO callbacks to test
+        // whether depth write works at all when callbacks are not involved.
         if (_isHoldout) {
-            MHWRender::MShaderInstance* holdoutShader = _delegate->GetHoldoutShader();
-            if (holdoutShader) {
-                // Check whether this render item already has a holdout clone assigned.
-                const bool alreadyHasClone = (drawItemData._shader != nullptr)
-                    && (std::find(_holdoutShaderClones.begin(), _holdoutShaderClones.end(),
-                                    drawItemData._shader)
-                        != _holdoutShaderClones.end());
-                if (!alreadyHasClone) {
-                    MHWRender::MShaderInstance* clone = holdoutShader->clone();
-                    if (clone) {
-                        _holdoutShaderClones.push_back(clone);
-                        drawItemData._shader  = clone;
-                        stateToCommit._shader = clone;
-                    }
-                }
-                // This will be used later inside the Commit lambda for
-                // setTreatAsTransparent. It will serve 2 purposes:
-                // 1. keep the renderItem in the opaqueList
-                // 2. VP2 will use the setTreatAsTransparent override value and
-                //      ignore the result of isTransparent() check on the shader.
-                //      Since our holdout shader has alpha=0, it would return
-                //      true for isTransparent() and VP2 would remove the item
-                //      from the opaqueList.
-                stateToCommit._isTransparent = false;
+            MHWRender::MShaderInstance* diagShader
+                = _delegate->Get3dSolidShader(MColor(1.0f, 0.0f, 0.0f, 1.0f));
+            if (diagShader && diagShader != drawItemData._shader) {
+                drawItemData._shader  = diagShader;
+                stateToCommit._shader = diagShader;
             }
+            stateToCommit._isTransparent = false;
         } else if (dirtyMaterialId) {
             SdfPath materialId = GetMaterialId();
             if (drawItemData._geomSubset.id != SdfPath::EmptyPath()) {
