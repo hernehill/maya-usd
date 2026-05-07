@@ -1867,7 +1867,7 @@ void HdVP2Mesh::_UpdateDrawItem(
                         }
                     }
                 }
-                stateToCommit._isTransparent = false;
+                stateToCommit._isTransparent = true; // stays in transparent list
             }
         } else if (dirtyMaterialId) {
             SdfPath materialId = GetMaterialId();
