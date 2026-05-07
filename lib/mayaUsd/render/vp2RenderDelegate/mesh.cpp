@@ -2939,9 +2939,11 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
         // The clone is assigned in _UpdateDrawItem when the main clone is created.
         depthItem->setShader(_delegate->Get3dSolidShader(
             MColor(0.0f, 0.0f, 0.0f, 1.0f)));
-        subSceneContainer.add(depthItem);
-        const_cast<HdVP2Mesh*>(this)->_holdoutDepthRenderItems.push_back(depthItem);
-        MGlobal::displayWarning("[Holdout] depth render item created");
+        // DIAGNOSTIC: temporarily disabled to test if depth item causes apparent occlusion
+        // subSceneContainer.add(depthItem);
+        // const_cast<HdVP2Mesh*>(this)->_holdoutDepthRenderItems.push_back(depthItem);
+        // MGlobal::displayWarning("[Holdout] depth render item created");
+        MHWRender::MRenderItem::Destroy(depthItem);
     }
 
 #ifdef MAYA_NEW_POINT_SNAPPING_SUPPORT
