@@ -185,11 +185,12 @@ static void HoldoutPreDrawCallback(
     }
 
     if (isOpaque || isDepthPrePass) {
-        // Opaque beauty pass or depth pre-pass: write depth to occlude later geometry,
-        // suppress colour/alpha writes without using kNoChannels (which breaks depth write
-        // on OGS by discarding fragments before the depth unit).
-        // Instead, use a blend equation of src=ZERO, dst=ONE: the holdout colour contributes
-        // nothing to the framebuffer while depth write proceeds normally.
+        // Opaque beauty pass or depth pre-pass: write depth only.
+        // We do NOT touch the blend state — OGS's default blend state for this
+        // pass already handles solidColor=(0,0,0,0) as invisible. Setting any
+        // custom blend state (including kNoChannels or src=ZERO/dst=ONE) causes
+        // OGS to route the fragment through the transparent pipeline, disabling
+        // depth write regardless of our depth state override.
         MHWRender::MRasterizerStateDesc rs;
         rs.setDefaults();
         rs.cullMode = MHWRender::MRasterizerState::kCullNone;
@@ -202,16 +203,7 @@ static void HoldoutPreDrawCallback(
         ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
         if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
 
-        MHWRender::MBlendStateDesc bl;
-        bl.setDefaults();
-        bl.targetBlends[0].blendEnable    = true;
-        bl.targetBlends[0].sourceBlend    = MHWRender::MBlendState::kZero;
-        bl.targetBlends[0].destinationBlend = MHWRender::MBlendState::kOne;
-        bl.targetBlends[0].blendOperation  = MHWRender::MBlendState::kAdd;
-        bl.targetBlends[0].alphaSourceBlend    = MHWRender::MBlendState::kZero;
-        bl.targetBlends[0].alphaDestinationBlend = MHWRender::MBlendState::kOne;
-        bl.targetBlends[0].alphaBlendOperation   = MHWRender::MBlendState::kAdd;
-        if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
+        // No blend state override — leave OGS default in place.
         return;
     }
 
@@ -250,15 +242,12 @@ static void HoldoutPostDrawCallback(
     MHWRender::MStateManager* sm = context.getStateManager();
     if (!sm) return;
 
+    // Restore depth state. No blend state to restore since we didn't set one.
     MHWRender::MDepthStencilStateDesc ds;
     ds.setDefaults();
     if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
 
-    MHWRender::MBlendStateDesc bl;
-    bl.setDefaults();
-    if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
-
-    if ((isOpaque || isDepthPrePass) && (!isHoldoutBKGD)) {
+    if ((isOpaque || isDepthPrePass) && !isHoldoutBKGD) {
         MHWRender::MRasterizerStateDesc rs;
         rs.setDefaults();
         if (auto* s = MHWRender::MStateManager::acquireRasterizerState(rs)) sm->setRasterizerState(s);
