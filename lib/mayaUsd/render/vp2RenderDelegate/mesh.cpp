@@ -2941,6 +2941,7 @@ HdVP2DrawItem::RenderItemData& HdVP2Mesh::_CreateSmoothHullRenderItem(
             MColor(0.0f, 0.0f, 0.0f, 1.0f)));
         subSceneContainer.add(depthItem);
         const_cast<HdVP2Mesh*>(this)->_holdoutDepthRenderItems.push_back(depthItem);
+        MGlobal::displayWarning("[Holdout] depth render item created");
     }
 
 #ifdef MAYA_NEW_POINT_SNAPPING_SUPPORT

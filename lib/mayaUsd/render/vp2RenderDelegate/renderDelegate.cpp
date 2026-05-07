@@ -182,8 +182,11 @@ static void HoldoutPreDrawCallback(
 
     if (isOpaque) {
         // Depth item in opaque pass: depth write ON, color write OFF.
-        // Note: kNoChannels appears to break depth write on MaterialSceneItem
-        // but may work correctly on NonMaterialSceneItem.
+        static int sDbg = 0;
+        if (sDbg < 10) {
+            MGlobal::displayWarning("[Holdout] depth item opaque branch firing");
+            ++sDbg;
+        }
         MHWRender::MDepthStencilStateDesc ds;
         ds.setDefaults();
         ds.depthEnable      = true;
