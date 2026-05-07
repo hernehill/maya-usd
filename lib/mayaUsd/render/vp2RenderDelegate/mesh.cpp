@@ -2542,7 +2542,6 @@ void HdVP2Mesh::_UpdateDrawItem(
     }
 
     if (_isHoldout) {
-        const bool isHoldout = true;
         for (MHWRender::MRenderItem* depthItem : _holdoutDepthRenderItems) {
             _delegate->GetVP2ResourceRegistry().EnqueueCommit(
                 [depthItem, stateToCommit, param, primvarInfo, primvars,
