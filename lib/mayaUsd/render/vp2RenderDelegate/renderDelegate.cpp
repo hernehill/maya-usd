@@ -186,14 +186,20 @@ static void HoldoutPreDrawCallback(
             MGlobal::displayWarning("[Holdout] depth item opaque branch firing");
             ++sDbg;
         }
-        // Depth write ON only. No blend state override — kNoChannels breaks depth write.
-        // The depth item will write black pixels, which is acceptable for now.
+        // Depth write ON, color write OFF.
+        // Testing kNoChannels on NonMaterialSceneItem — does it break depth write here?
         MHWRender::MDepthStencilStateDesc ds;
         ds.setDefaults();
         ds.depthEnable      = true;
         ds.depthWriteEnable = true;
         ds.depthFunc        = MHWRender::MStateManager::kCompareLessEqual;
         if (auto* s = MHWRender::MStateManager::acquireDepthStencilState(ds)) sm->setDepthStencilState(s);
+
+        MHWRender::MBlendStateDesc bl;
+        bl.setDefaults();
+        bl.targetBlends[0].blendEnable     = false;
+        bl.targetBlends[0].targetWriteMask = MHWRender::MBlendState::kNoChannels;
+        if (auto* s = MHWRender::MStateManager::acquireBlendState(bl)) sm->setBlendState(s);
         return;
     }
 
