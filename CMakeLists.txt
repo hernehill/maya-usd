@@ -368,6 +368,7 @@ endif()
 
 if (BUILD_ADSK_PLUGIN)
     add_subdirectory(plugin/adsk)
+    add_subdirectory(plugin/holdoutSpike)
 endif()
 
 #------------------------------------------------------------------------------

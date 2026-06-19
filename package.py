@@ -1,6 +1,6 @@
 name = "maya_usd"
 
-version = "0.34.5.hh.1.1.0"
+version = "0.34.5.hh.1.3.0"
 
 authors = [
     "Autodesk",
@@ -24,8 +24,8 @@ private_build_requires = [
 ]
 
 variants = [
-    ["maya-2025.3", "usd-24.11", "python-3.11.4"],  # Maya 2025: undefined symbol _PyModule_add issue
-    ["maya-2026.2", "usd-25.08", "python-3.11.9"],  # Maya 2026: undefined symbol _PyModule_add issue
+    # ["maya-2025.3", "usd-24.11", "python-3.11.4"],  # Maya 2025: undefined symbol _PyModule_add issue
+    # ["maya-2026.2", "usd-25.08", "python-3.11.9"],  # Maya 2026: undefined symbol _PyModule_add issue
     ["maya-2026.3", "usd-25.08", "python-3.11.9"],  # Maya 2026: undefined symbol _PyModule_add issue
 ]
 
