@@ -42,6 +42,7 @@
 #include <mayaUsd/nodes/stageData.h>
 #include <mayaUsd/render/pxrUsdMayaGL/proxyShapeUI.h>
 #include <mayaUsd/render/vp2RenderDelegate/proxyRenderDelegate.h>
+#include <mayaUsd/render/vp2RenderDelegate/holdoutDepthPass.h>
 #include <mayaUsd/ufe/Global.h>
 #include <mayaUsd/undo/MayaUsdUndoBlock.h>
 #include <mayaUsd/utils/diagnosticDelegate.h>
@@ -445,6 +446,8 @@ MStatus initializePlugin(MObject obj)
 
 #endif // WANT_ADSK_USD_ASSET_RESOLVER_BUILD
 
+    HdVP2HoldoutDepthPass::Register();
+
     return status;
 }
 
@@ -588,6 +591,8 @@ MStatus uninitializePlugin(MObject obj)
     UsdMayaBeforeSceneResetNotice::RemoveListener();
     UsdMayaExitNotice::RemoveListener();
     UsdMayaDiagnosticDelegate::RemoveDelegate();
+
+    HdVP2HoldoutDepthPass::Deregister();
 
     return status;
 }
