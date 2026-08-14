@@ -20,6 +20,7 @@ private_build_requires = [
     "Jinja2",
     "PySide6",
     "PyYAML",
+    "visual_studio",
 ]
 
 variants = [

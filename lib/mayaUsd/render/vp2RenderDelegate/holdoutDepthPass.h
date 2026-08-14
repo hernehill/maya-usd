@@ -16,6 +16,8 @@
 #ifndef HD_VP2_HOLDOUT_DEPTH_PASS
 #define HD_VP2_HOLDOUT_DEPTH_PASS
 
+#include <mayaUsd/base/api.h>
+
 #include <pxr/pxr.h>
 
 #include <maya/MDagPath.h>
@@ -40,7 +42,9 @@ namespace HdVP2HoldoutDepthPass {
 
 //! Register/deregister the VP2 pre-scene-render notification. Call from the
 //! Maya plugin's initialize/uninitialize.
+MAYAUSD_CORE_PUBLIC
 void Register();
+MAYAUSD_CORE_PUBLIC
 void Deregister();
 
 //! Insert or update one render item's geometry for depth stamping. Buffer
