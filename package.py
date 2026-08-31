@@ -1,6 +1,6 @@
 name = "maya_usd"
 
-version = "0.36.0.hh.1.2.0"
+version = "0.36.0.hh.1.2.1"
 
 authors = [
     "Autodesk",
@@ -32,6 +32,8 @@ def commands():
     env.REZ_MAYA_USD_ROOT = "{root}"
     env.MAYA_USD_ROOT = "{root}"
     env.MAYA_USD_LOCATION = "{root}"
+    env.LIB.append("{root}/lib")
+    env.LD_LIBRARY_PATH.append("{root}/lib")
 
 
 def post_commands():
