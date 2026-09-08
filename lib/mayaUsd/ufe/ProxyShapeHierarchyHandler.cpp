@@ -62,6 +62,12 @@ Ufe::Hierarchy::ChildFilter ProxyShapeHierarchyHandler::childFilter() const
 {
     // Use the same child filter as the USD hierarchy handler.
     auto usdHierHand = Ufe::RunTimeMgr::instance().hierarchyHandler(getUsdRunTimeId());
+    // The USD run-time handler may not be registered yet (e.g. queried before
+    // mayaUsd has finished initializing), so guard against a null return
+    // instead of crashing.
+    if (!usdHierHand) {
+        return Ufe::Hierarchy::ChildFilter();
+    }
     return usdHierHand->childFilter();
 }
 
