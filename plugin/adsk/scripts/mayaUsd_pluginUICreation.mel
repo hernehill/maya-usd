@@ -21,6 +21,13 @@ global proc mayaUsd_pluginUICreation()
 // Callback registered with the MFnPlugin for when the plugin is loaded.
 // Used to initialize any UI we create.
 {
+    // Register all plugin UI strings up front. Without this, Maya's lazy
+    // string-registration only kicks in on the first failed lookup below,
+    // and that first lookup still errors out (registration happens too late
+    // to satisfy the call that triggered it).
+    source "mayaUSDRegisterStrings.mel";
+    mayaUSDRegisterStrings();
+
     source "mayaUsdMenu.mel";
     mayaUsdMenu_loadui;
 
